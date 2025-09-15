@@ -10,7 +10,7 @@ const unzipper = require('unzipper');
 
 // Global variables
 // Google Drive config
-const DRIVE_FOLDER_ID = '1JwJxZin35ZjFjDw6VxPCg2HVpw9VmzOb'; // <-- Set your folder ID here
+const DRIVE_FOLDER_ID = ''; // <-- Set your folder ID here
 let driveServiceAccount = null;
 try {
   // Try to load service account JSON from resources
