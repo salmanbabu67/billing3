@@ -40,6 +40,8 @@ function getOAuth2Client(callback) {
     // The code will be received via IPC handler below
     return null;
   }
+}
+
 // IPC handler to receive OAuth code from renderer
 ipcMain.on('oauth-code', (event, code) => {
   if (!oAuth2Client) {
@@ -59,7 +61,7 @@ ipcMain.on('oauth-code', (event, code) => {
     mainWindow.webContents.send('oauth-success', 'Authentication successful! You can now sync.');
   });
 });
-}
+
 let mainWindow;
 let adminWindow;
 let userWindow;
