@@ -4,4 +4,3 @@ node_modules/
 *.log
 coverage/
 dist/
-resources/drive-service-account.json
