@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS Billing System - Admin Dashboard</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <div class="header">
+        <h1>Admin Dashboard</h1>
+        <div class="header-info">
+            <span id="branchInfo">Branch: Loading...</span>
+            <span id="lastSync">Last Sync: Never</span>
+            <button class="btn btn-secondary" onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('branch')">Branch Details</button>
+            <button class="tab" onclick="showTab('products')">Products</button>
+            <button class="tab" onclick="showTab('offers')">Offers</button>
+            <button class="tab" onclick="showTab('sync')">Sync</button>
+        </div>
+
+        <!-- Branch Details Tab -->
+        <div id="branch-tab" class="tab-content active">
+            <h2>Branch Management</h2>
+            
+            <!-- Add New Branch Form -->
+            <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem;">
+                <h3>Add New Branch</h3>
+                <form id="branchForm">
+                    <div class="row">
+                        <div class="col">
+                            <div class="form-group">
+                                <label>Branch Code:</label>
+                                <span id="autoBranchCode" style="font-weight:bold;">(Auto-generated)</span>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="form-group">
+                                <label for="branchName">Branch Name:</label>
+                                <input type="text" id="branchName" name="branchName" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col">
+                            <div class="form-group">
+                                <label for="branchPassword">Branch Password:</label>
+                                <input type="password" id="branchPassword" name="branchPassword" required>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="form-group">
+                                <label for="gst">GST Number:</label>
+                                <input type="text" id="gst" name="gst">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col">
+                            <div class="form-group">
+                                <label for="fssai">FSSAI Number:</label>
+                                <input type="text" id="fssai" name="fssai">
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="form-group">
+                                <label for="phone">Phone Number:</label>
+                                <input type="tel" id="phone" name="phone">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="billAddress">Bill Address:</label>
+                        <textarea id="billAddress" name="billAddress" rows="3" placeholder="Enter bill address"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email:</label>
+                        <input type="email" id="email" name="email">
+                    </div>
+                    <button type="submit" class="btn btn-success">Add Branch</button>
+                    <button type="button" class="btn btn-secondary" onclick="clearBranchForm()">Clear Form</button>
+                </form>
+            </div>
+
+            <!-- Existing Branches Table -->
+            <div class="branch-table-container">
+                <h3>Existing Branches</h3>
+                <div class="table-container">
+                    <table id="branchesTable" style="min-width:1400px; width:1400px; border:1px solid #ccc;">
+                        <thead>
+                            <tr>
+                                <th>Branch Code</th>
+                                <th>Branch Name</th>
+                                <th>GST</th>
+                                <th>FSSAI</th>
+                                <th>Phone</th>
+                                <th>Email</th>
+                                <th>Bill Address</th>
+                                <th>Password (Hash)</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="branchesTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Products Tab -->
+        <div id="products-tab" class="tab-content">
+            <h2>Products Management</h2>
+            <div class="row">
+                <div class="col-2">
+                    <div class="form-group">
+                        <label for="productName">Item Name:</label>
+                        <input type="text" id="productName" placeholder="Enter product name">
+                    </div>
+                </div>
+                <div class="col-2">
+                    <div class="form-group">
+                        <label for="productCategory">Category:</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <select id="productCategory" style="flex: 1;">
+                                <option value="">Select Category</option>
+                            </select>
+                            <button type="button" class="btn btn-secondary" onclick="openCategoryModal()" style="padding: 0.5rem;">+</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-2">
+                    <div class="form-group">
+                        <label for="productBranch">Branch:</label>
+                        <select id="productBranch">
+                            <option value="">Select Branch</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="productShortcut">Shortcut #:</label>
+                        <input type="number" id="productShortcut" placeholder="1" min="1">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="productPrice">Price:</label>
+                        <input type="number" id="productPrice" step="0.01" placeholder="0.00">
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-success" onclick="addProduct()">Add Product</button>
+            
+            <!-- Filter Section -->
+            <div class="filter-container">
+                <div class="filter-group">
+                    <label for="branchFilter">Filter by Branch:</label>
+                    <select id="branchFilter" onchange="filterProductsByBranch()">
+                        <option value="">All Branches</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <button class="btn btn-secondary" onclick="clearProductFilter()">Clear Filter</button>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table id="productsTable">
+                    <thead>
+                        <tr>
+                            <th>Item Name</th>
+                            <th>Category</th>
+                            <th>Branch</th>
+                            <th>Shortcut #</th>
+                            <th>Price</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                        <tbody id="branchesTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Offers Tab -->
+        <div id="offers-tab" class="tab-content">
+            <h2>Offers Management</h2>
+            <div class="row">
+                <div class="col-2">
+                    <div class="form-group">
+                        <label for="offerName">Offer Name:</label>
+                        <input type="text" id="offerName" placeholder="Enter offer name">
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="offerDiscount">Discount %:</label>
+                        <input type="number" id="offerDiscount" step="0.01" placeholder="0.00" min="0" max="100">
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-success" onclick="addOffer()">Add Offer</button>
+            
+            <div class="table-container">
+                <table id="offersTable">
+                    <thead>
+                        <tr>
+                            <th>Offer Name</th>
+                            <th>Discount %</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sync Tab -->
+        <div id="sync-tab" class="tab-content">
+            <h2>Data Synchronization</h2>
+            <div class="sync-section">
+                <h3>Push Updates to Google Drive</h3>
+                <p>Upload current branch data (products, offers, branch details) to Google Drive for other devices to download.</p>
+                <button class="btn btn-success" onclick="pushSync()">Push Sync</button>
+            </div>
+
+            <div class="sync-section">
+                <h3>Sync Status</h3>
+                <div class="sync-info">
+                    <div>
+                        <strong>Last Sync:</strong> <span id="lastSyncTime">Never</span>
+                    </div>
+                    <div>
+                        <strong>Version:</strong> <span id="versionInfo">1.0.0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="message info">
+                <strong>Note:</strong> Google Drive API integration is required. Please configure your Google Drive credentials in the main process.
+            </div>
+        </div>
+
+        <div id="message"></div>
+    <!-- Confirmation Modal -->
+    <div id="confirmModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="confirmModalTitle">Confirm Action</h3>
+                <span class="close" onclick="closeConfirmModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="confirmModalText"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+                <button class="btn btn-danger" id="confirmModalYes">Yes</button>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Category Modal -->
+    <div id="categoryModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Add New Category</h3>
+                <span class="close" onclick="closeCategoryModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="newCategoryName">Category Name:</label>
+                    <input type="text" id="newCategoryName" placeholder="Enter category name">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCategoryModal()">Cancel</button>
+                <button class="btn btn-success" onclick="addCategory()">Add Category</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer/common.js"></script>
+    <script src="renderer/admin.js"></script>
+</body>
+</html>

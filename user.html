@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS Billing System - User Interface</title>
+    <link rel="stylesheet" href="css/user.css">
+</head>
+
+<body>
+    <div class="header">
+        <h1>POS Billing System</h1>
+        <div class="header-info">
+            <span id="branchInfo">Branch: Loading...</span>
+            <span id="lastSync">Last Sync: Never</span>
+            <button class="btn btn-secondary" onclick="logout()">Logout</button>
+            <button class="btn btn-info" id="pullSyncBtn" onclick="pullSync()">Pull Sync</button>
+            <button class="btn btn-primary" id="openReportsBtn" onclick="openReportsModal()">Reports</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <div class="search-menu">
+                <h3>Search Menu Items</h3>
+                <input type="text" class="search-input" id="searchInput"
+                    placeholder="Search by name or shortcut key...">
+                <div id="searchResults" class="search-results" style="position:relative;z-index:10;"></div>
+            </div>
+            <div class="categories">
+                <h3>Categories</h3>
+                <div id="categoriesList">Select a branch to view categories</div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="menu-items-header">
+                <h2>Menu Items</h2>
+                <div id="menuItemsPrompt">Select a branch and category to view menu items</div>
+            </div>
+            <!-- POS Tab -->
+            <div id="pos-tab" class="tab-content active">
+                <div class="main-content">
+                    <div class="products-section">
+                        <h3>Products</h3>
+                        <div class="products-grid" id="productsGrid">
+                            <!-- Products will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="message"></div>
+        </div>
+
+        <div class="bill-section">
+            <div class="bill-header">
+                <h3>Current Bill</h3>
+                <div>Bill #<span id="currentBillNo">-</span></div>
+            </div>
+            <div class="bill-items" id="billItems">
+                <div class="empty-state">
+                    <div>No items in bill</div>
+                </div>
+            </div>
+            <div class="bill-footer">
+                <div class="bill-total">
+                    <span>Total:</span>
+                    <span id="billTotal">₹0.00</span>
+                </div>
+                <div class="bill-actions">
+                    <button class="btn btn-primary" onclick="generateBill()">Generate Bill</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reports Modal -->
+        <div id="reportsModal" class="custom-modal hidden">
+            <div class="custom-modal-content" style="max-width:900px;min-width:700px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+                    <h2 style="font-size:1.5rem;font-weight:700;color:#222;">My Bills & Reports</h2>
+                    <button id="closeReportsModal" onclick="closeReportsModal()"
+                        style="background:none;border:none;font-size:2rem;line-height:1;cursor:pointer;color:#888;">&times;</button>
+                </div>
+                <div class="modal-tabs" style="display:flex;gap:1rem;margin-bottom:1.5rem;">
+                    <button class="modal-tab" id="tab-bills" onclick="showModalTab('bills')">Bills</button>
+                    <button class="modal-tab" id="tab-itemwise" onclick="showModalTab('itemwise')">Item-wise</button>
+                    <button class="modal-tab" id="tab-billwise" onclick="showModalTab('billwise')">Bill-wise</button>
+                    <button class="modal-tab" id="tab-daywise" onclick="showModalTab('daywise')">Day-wise</button>
+                </div>
+                <div class="modal-filters" style="display:flex;gap:1rem;margin-bottom:1.5rem;">
+                    <button class="modal-filter" id="filter-today" onclick="setModalFilter('today')">Today</button>
+                    <button class="modal-filter" id="filter-yesterday"
+                        onclick="setModalFilter('yesterday')">Yesterday</button>
+                    <button id="printReportsBtn" class="btn btn-primary"
+                        style="margin-left:auto;display:flex;align-items:center;gap:0.5rem;"
+                        onclick="printCurrentModalTab()"><span style="font-size:1.2rem;">🖨️</span> Print</button>
+                </div>
+                <div id="modalTabContent" style="min-height:250px;">
+                    <!-- Tab content will be injected here by JS -->
+                </div>
+            </div>
+        </div>
+        <!-- Confirm Modal for logout and other confirmations -->
+        <div id="confirmModal" class="custom-modal" style="display:none;z-index:9999;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.25);justify-content:center;align-items:center;">
+            <div class="custom-modal-content" style="max-width:400px;min-width:300px;margin:auto;position:relative;top:50%;transform:translateY(-50%);box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+                <div id="confirmModalText" style="margin-bottom:2rem;font-size:1.2rem;color:#222;"></div>
+                <div style="display:flex;justify-content:flex-end;gap:1rem;">
+                    <button id="confirmModalYes" class="btn btn-primary">Yes</button>
+                    <button class="btn btn-secondary" onclick="window.closeConfirmModal()">No</button>
+                </div>
+            </div>
+        </div>
+        <script src="renderer/common.js"></script>
+        <script src="renderer/user.js"></script>
+</body>
+
+</html>

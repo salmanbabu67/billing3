@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POS Billing System - Login</title>
+    <link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>POS Billing</h1>
+            <p>Offline-first Point of Sale System</p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('user')">User Login</button>
+            <button class="tab" onclick="showTab('admin')">Admin Login</button>
+        </div>
+
+        <!-- User Login Tab -->
+        <div id="user-tab" class="tab-content active">
+            <div class="tab-description">
+                Enter your branch password to access the POS system
+            </div>
+            <form id="userLoginForm">
+                <div class="form-group">
+                    <label for="branchPassword">Branch Password:</label>
+                    <input type="password" id="branchPassword" name="branchPassword" required placeholder="Enter branch password">
+                </div>
+                <button type="submit" class="btn" id="userLoginBtn">Login as User</button>
+            </form>
+        </div>
+
+        <!-- Admin Login Tab -->
+        <div id="admin-tab" class="tab-content">
+            <div class="tab-description">
+                Enter your admin email to access the admin dashboard
+            </div>
+            <form id="adminLoginForm">
+                <div class="form-group">
+                    <label for="adminEmail">Admin Email:</label>
+                    <input type="email" id="adminEmail" name="adminEmail" required placeholder="Enter admin email">
+                </div>
+                <button type="submit" class="btn" id="adminLoginBtn">Login as Admin</button>
+            </form>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Loading...</p>
+        </div>
+
+        <div id="message"></div>
+    </div>
+
+    <script src="renderer/login.js"></script>
+</body>
+</html>

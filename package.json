@@ -1,0 +1,53 @@
+{
+  "name": "pos-billing-app",
+  "version": "1.0.0",
+  "description": "Offline-first POS billing desktop application using Electron and Excel storage",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build-win": "electron-builder --win",
+    "dist": "electron-builder --publish=never"
+  },
+  "keywords": ["pos", "billing", "electron", "excel", "offline"],
+  "author": "POS Billing App",
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^27.0.0",
+    "xlsx": "^0.18.5",
+    "bcrypt": "^5.1.1",
+    "googleapis": "^128.0.0",
+    "archiver": "^6.0.1",
+    "unzipper": "^0.10.14"
+  },
+  "devDependencies": {
+    "electron-builder": "^24.6.4"
+  },
+  "build": {
+    "appId": "com.posbilling.app",
+    "productName": "POS Billing System",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/**/*",
+      "!dist/**/*",
+      "!*.md"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "POS-Billing-System-${version}-portable.exe"
+    },
+    "extraResources": [
+      {
+        "from": "templates",
+        "to": "templates"
+      }
+    ]
+  }
+}
