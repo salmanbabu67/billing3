@@ -49,8 +49,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onWindowClosed: (callback) => {
     ipcRenderer.on('window-closed', callback);
   },
-  
   removeAllListeners: (channel) => {
     ipcRenderer.removeAllListeners(channel);
-  }
+  },
+  // Generic IPC event methods for OAuth and other custom events
+  on: (channel, listener) => ipcRenderer.on(channel, listener),
+  send: (channel, ...args) => ipcRenderer.send(channel, ...args)
 });
