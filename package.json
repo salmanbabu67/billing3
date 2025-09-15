@@ -10,16 +10,22 @@
     "build-win": "electron-builder --win",
     "dist": "electron-builder --publish=never"
   },
-  "keywords": ["pos", "billing", "electron", "excel", "offline"],
+  "keywords": [
+    "pos",
+    "billing",
+    "electron",
+    "excel",
+    "offline"
+  ],
   "author": "POS Billing App",
   "license": "MIT",
   "dependencies": {
-    "electron": "^27.0.0",
-    "xlsx": "^0.18.5",
-    "bcrypt": "^5.1.1",
-    "googleapis": "^128.0.0",
     "archiver": "^6.0.1",
-    "unzipper": "^0.10.14"
+    "bcrypt": "^5.1.1",
+    "electron": "^27.0.0",
+    "googleapis": "^128.0.0",
+    "unzipper": "^0.10.14",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "electron-builder": "^24.6.4"

@@ -10,20 +10,42 @@ const unzipper = require('unzipper');
 
 // Global variables
 // Google Drive config
-const DRIVE_FOLDER_ID = ''; // <-- Set your folder ID here
-let driveServiceAccount = null;
-try {
-  // Try to load service account JSON from resources
-  const saPath = process.env.DRIVE_SA_JSON
-    ? null
-    : path.join(__dirname, 'resources', 'drive-service-account.json');
-  if (process.env.DRIVE_SA_JSON) {
-    driveServiceAccount = JSON.parse(Buffer.from(process.env.DRIVE_SA_JSON, 'base64').toString('utf8'));
-  } else if (fs.existsSync(saPath)) {
-    driveServiceAccount = JSON.parse(fs.readFileSync(saPath, 'utf8'));
+const DRIVE_FOLDER_ID = '1JwJxZin35ZjFjDw6VxPCg2HVpw9VmzOb'; // <-- Set your folder ID here
+const OAUTH_CREDENTIALS_PATH = path.join(__dirname, 'client_id.json');
+const OAUTH_TOKEN_PATH = path.join(__dirname, 'tokens.json');
+let oAuth2Client = null;
+
+function getOAuth2Client(callback) {
+  if (!fs.existsSync(OAUTH_CREDENTIALS_PATH)) {
+    console.error('OAuth client_id.json not found.');
+    return null;
   }
-} catch (err) {
-  console.error('Failed to load Google Drive service account:', err);
+  const credentials = JSON.parse(fs.readFileSync(OAUTH_CREDENTIALS_PATH));
+  const { client_id, client_secret, redirect_uris } = credentials.installed;
+  oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+  if (fs.existsSync(OAUTH_TOKEN_PATH)) {
+    const tokens = JSON.parse(fs.readFileSync(OAUTH_TOKEN_PATH));
+    oAuth2Client.setCredentials(tokens);
+    if (callback) callback(oAuth2Client);
+    return oAuth2Client;
+  } else {
+    // First time: prompt user for consent
+    const authUrl = oAuth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: ['https://www.googleapis.com/auth/drive.file']
+    });
+    console.log('Authorize this app by visiting this url:', authUrl);
+    // Use prompt-sync for CLI input
+    const prompt = require('prompt-sync')();
+    const code = prompt('Enter the code from that page here: ');
+    oAuth2Client.getToken(code, (err, token) => {
+      if (err) return console.error('Error retrieving access token', err);
+      oAuth2Client.setCredentials(token);
+      fs.writeFileSync(OAUTH_TOKEN_PATH, JSON.stringify(token));
+      if (callback) callback(oAuth2Client);
+    });
+    return oAuth2Client;
+  }
 }
 let mainWindow;
 let adminWindow;
@@ -1031,13 +1053,8 @@ ipcMain.handle('get-reports', async (event, filter) => {
 
 ipcMain.handle('push-sync', async (event) => {
   try {
-    if (!driveServiceAccount) throw new Error('No Google Drive service account loaded');
-    const auth = new google.auth.JWT(
-      driveServiceAccount.client_email,
-      null,
-      driveServiceAccount.private_key,
-      ['https://www.googleapis.com/auth/drive.file']
-    );
+    const auth = getOAuth2Client();
+    if (!auth) throw new Error('No OAuth2 client available');
     const drive = google.drive({ version: 'v3', auth });
     const dataDir = path.join(__dirname, 'data');
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
@@ -1096,13 +1113,8 @@ ipcMain.handle('push-sync', async (event) => {
 
 ipcMain.handle('pull-sync', async (event) => {
   try {
-    if (!driveServiceAccount) throw new Error('No Google Drive service account loaded');
-    const auth = new google.auth.JWT(
-      driveServiceAccount.client_email,
-      null,
-      driveServiceAccount.private_key,
-      ['https://www.googleapis.com/auth/drive.file']
-    );
+    const auth = getOAuth2Client();
+    if (!auth) throw new Error('No OAuth2 client available');
     const drive = google.drive({ version: 'v3', auth });
     const dataDir = path.join(__dirname, 'data');
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
