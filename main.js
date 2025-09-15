@@ -29,23 +29,36 @@ function getOAuth2Client(callback) {
     if (callback) callback(oAuth2Client);
     return oAuth2Client;
   } else {
-    // First time: prompt user for consent
-    const authUrl = oAuth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: ['https://www.googleapis.com/auth/drive.file']
-    });
-    console.log('Authorize this app by visiting this url:', authUrl);
-    // Use prompt-sync for CLI input
-    const prompt = require('prompt-sync')();
-    const code = prompt('Enter the code from that page here: ');
-    oAuth2Client.getToken(code, (err, token) => {
-      if (err) return console.error('Error retrieving access token', err);
-      oAuth2Client.setCredentials(token);
-      fs.writeFileSync(OAUTH_TOKEN_PATH, JSON.stringify(token));
-      if (callback) callback(oAuth2Client);
-    });
-    return oAuth2Client;
+    // First time: send auth URL to renderer and wait for code
+    if (mainWindow) {
+      const authUrl = oAuth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['https://www.googleapis.com/auth/drive.file']
+      });
+      mainWindow.webContents.send('oauth-url', authUrl);
+    }
+    // The code will be received via IPC handler below
+    return null;
   }
+// IPC handler to receive OAuth code from renderer
+ipcMain.on('oauth-code', (event, code) => {
+  if (!oAuth2Client) {
+    // Try to reinitialize
+    if (!fs.existsSync(OAUTH_CREDENTIALS_PATH)) return;
+    const credentials = JSON.parse(fs.readFileSync(OAUTH_CREDENTIALS_PATH));
+    const { client_id, client_secret, redirect_uris } = credentials.installed;
+    oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
+  }
+  oAuth2Client.getToken(code, (err, token) => {
+    if (err) {
+      mainWindow.webContents.send('oauth-error', 'Error retrieving access token: ' + err.message);
+      return;
+    }
+    oAuth2Client.setCredentials(token);
+    fs.writeFileSync(OAUTH_TOKEN_PATH, JSON.stringify(token));
+    mainWindow.webContents.send('oauth-success', 'Authentication successful! You can now sync.');
+  });
+});
 }
 let mainWindow;
 let adminWindow;
