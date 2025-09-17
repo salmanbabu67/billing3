@@ -541,8 +541,9 @@ ipcMain.handle('create-branch', async (event, branchDetails) => {
 
     // Create the Excel file
     const success = await excelManager.createNewBranchFile();
-    
-    if (success) {
+    // Save user-entered branch details to Excel file
+    const saved = await excelManager.saveBranchData();
+    if (success && saved) {
       // Reload branch details from file
       await excelManager.loadBranchData();
       return {
