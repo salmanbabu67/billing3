@@ -51,65 +51,7 @@ document.addEventListener('DOMContentLoaded', function () {
     populateCategories();
 });
 
-// OAuth IPC event listener
-if (window.electronAPI && window.electronAPI.on) {
-    window.electronAPI.on('oauth-url', (event, authUrl) => {
-        showOAuthModal(authUrl);
-    });
-    window.electronAPI.on('oauth-success', (event, msg) => {
-        showMessage(msg, 'success');
-        closeOAuthModal();
-    });
-    window.electronAPI.on('oauth-error', (event, msg) => {
-        showMessage(msg, 'error');
-    });
-}
 
-// OAuth Modal UI and logic
-function showOAuthModal(authUrl) {
-    let modal = document.getElementById('oauthModal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'oauthModal';
-        modal.style.position = 'fixed';
-        modal.style.top = '0';
-        modal.style.left = '0';
-        modal.style.width = '100vw';
-        modal.style.height = '100vh';
-        modal.style.background = 'rgba(0,0,0,0.5)';
-        modal.style.zIndex = '9999';
-        modal.innerHTML = `
-            <div style="background:#fff;padding:32px;max-width:500px;margin:80px auto;border-radius:8px;box-shadow:0 2px 16px #0003;">
-                <h2>Google Drive Authentication</h2>
-                <p>To sync, you must authorize this app. Click the link below, sign in, and paste the code here.</p>
-                <a href="${authUrl}" target="_blank" style="word-break:break-all;">${authUrl}</a>
-                <div style="margin-top:16px;">
-                    <input id="oauthCodeInput" type="text" placeholder="Paste code here" style="width:80%;padding:8px;" />
-                    <button id="submitOAuthCode" style="padding:8px 16px;margin-left:8px;">Submit</button>
-                </div>
-                <button id="closeOAuthModal" style="margin-top:16px;">Cancel</button>
-            </div>
-        `;
-        document.body.appendChild(modal);
-        document.getElementById('submitOAuthCode').onclick = function() {
-            const code = document.getElementById('oauthCodeInput').value.trim();
-            if (code && window.electronAPI && window.electronAPI.send) {
-                window.electronAPI.send('oauth-code', code);
-            }
-        };
-        document.getElementById('closeOAuthModal').onclick = closeOAuthModal;
-    } else {
-        modal.style.display = 'block';
-        const link = modal.querySelector('a');
-        if (link) link.href = authUrl;
-        link.textContent = authUrl;
-    }
-}
-
-function closeOAuthModal() {
-    const modal = document.getElementById('oauthModal');
-    if (modal) modal.style.display = 'none';
-}
 
 async function loadBranchData() {
     try {
@@ -418,14 +360,14 @@ function setupProductHandlers() {
         const shortcut = parseInt(document.getElementById('productShortcut').value);
         const price = parseFloat(document.getElementById('productPrice').value);
 
-        if (!name || !category || !branch || isNaN(price) || isNaN(shortcut)) {
-            showMessage('Please fill in all product fields', 'error');
+        // Validate shortcut_number
+        if (!name || !category || !branch || isNaN(price) || isNaN(shortcut) || shortcut < 1 || !Number.isInteger(shortcut)) {
+            showMessage('All fields required. Shortcut # must be an integer ≥ 1.', 'error');
             return;
         }
-
-        // Check if shortcut number already exists
-        if (products.some(p => p.shortcut_number === shortcut)) {
-            showMessage('Shortcut number already exists', 'error');
+        // Check if shortcut number already exists for this branch
+        if (products.some(p => p.branch === branch && p.shortcut_number === shortcut)) {
+            showMessage('Shortcut number already exists for this branch', 'error');
             return;
         }
 
@@ -697,12 +639,10 @@ function showTab(tabName) {
 
 async function pushSync() {
     try {
-        showMessage('Pushing updates to Google Drive...', 'info');
-
+        showMessage('Uploading Excel to backend...', 'info');
         const result = await window.electronAPI.pushSync();
-
         if (result.success) {
-            showMessage('Sync package prepared successfully. Google Drive integration needed.', 'success');
+            showMessage('Excel uploaded and branch synced via backend.', 'success');
             updateBranchInfo();
         } else {
             showMessage(result.message || 'Sync failed', 'error');

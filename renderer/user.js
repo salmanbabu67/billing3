@@ -15,11 +15,11 @@ let currentBillNo = null;
 document.addEventListener('DOMContentLoaded', function () {
     // Global shortcut buffer for numeric keys
     document.addEventListener('keydown', function(e) {
-        // Ignore if a modal is open or if input/textarea is focused
+        // Debug: log every keydown event and focus state
         const active = document.activeElement;
         const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
-        const isModal = document.querySelector('.custom-modal:not(.hidden)');
-        if (isModal) return;
+    const isModal = document.querySelector('.custom-modal:not(.hidden)');
+    console.log('[POS] keydown:', e.key, '| isInput:', isInput, '| active.id:', active && active.id, '| isModal:', !!isModal);
         if (isInput && active.id === 'searchInput') return; // Let searchInput handle its own shortcuts
         if (e.key >= '0' && e.key <= '9') {
             e.preventDefault();
@@ -85,18 +85,22 @@ async function loadBranchData() {
         console.log('Current branch code:', branchCode, allBranchData, window.currentUser);
         if (!branchCode && Array.isArray(allBranchData) && allBranchData.length === 1) {
             // If only one branch, use its code
-            branchCode = allBranchData[0].branch_details?.branch_code;
-            window.currentBranch = branchCode;
+            branchCode = allBranchData[0].branchDetails?.branch_code;
         }
         if (Array.isArray(allBranchData)) {
-            branchData = allBranchData.find(b => b.branch_details?.branch_code === branchCode);
+            branchData = allBranchData.find(b => b.branchDetails?.branch_code === branchCode);
             if (!branchData) {
                 branchData = allBranchData[0];
-                window.currentBranch = branchData.branch_details?.branch_code;
             }
         } else {
             branchData = allBranchData;
-            window.currentBranch = branchData.branch_details?.branch_code;
+        }
+        // Always set window.currentBranch from branchDetails
+        window.currentBranch = branchData?.branchDetails?.branch_code;
+        if (!branchData || !branchData.branchDetails) {
+            showMessage('Branch data is missing or corrupted. Please sync again or contact admin.', 'error');
+            console.error('Branch data missing:', branchData);
+            return;
         }
         console.log('Loaded branchData:', branchData, branchCode);
         products = branchData.products || [];
@@ -260,7 +264,8 @@ function addToShortcutBuffer(digit) {
 
 function clearShortcutBuffer() {
     shortcutBuffer = '';
-    document.getElementById('shortcutDisplay').textContent = '0';
+    const shortcutDisplay = document.getElementById('shortcutDisplay');
+    if (shortcutDisplay) shortcutDisplay.textContent = '0';
     if (shortcutTimeout) {
         clearTimeout(shortcutTimeout);
         shortcutTimeout = null;
@@ -268,9 +273,16 @@ function clearShortcutBuffer() {
 }
 
 function addProductByShortcut() {
+    console.log('[POS] addProductByShortcut called. Buffer:', shortcutBuffer);
     const shortcutNumber = parseInt(shortcutBuffer);
+    // Debug: log all available shortcut numbers and product names
+    console.log('[POS] Available shortcuts:', products.map(p => ({ shortcut_number: p.shortcut_number, name: p.name })));
+    if (!shortcutNumber || shortcutNumber < 1 || !Number.isInteger(shortcutNumber)) {
+        showMessage('Shortcut must be an integer ≥ 1.', 'error');
+        clearShortcutBuffer();
+        return;
+    }
     const product = products.find(p => p.shortcut_number === shortcutNumber);
-
     if (product) {
         addProductToBill(product);
         clearShortcutBuffer();
@@ -920,20 +932,34 @@ function loadModalTabContent(tab) {
 
 async function pullSync() {
     try {
-        showMessage('Fetching updates from Google Drive...', 'info');
-        const result = await window.electronAPI.pullSync();
+        // Defensive: always use window.currentBranch, fallback to branchData.branchDetails.branch_code if needed
+        let branchId = window.currentBranch;
+        if (!branchId && window.branchData && window.branchData.branchDetails && window.branchData.branchDetails.branch_code) {
+            branchId = window.branchData.branchDetails.branch_code;
+        }
+        if (!branchId) {
+            showMessage('No branch selected for sync.', 'error');
+            return;
+        }
+        showMessage('Syncing branch data from backend...', 'info');
+        const result = await window.electronAPI.pullSync(branchId);
         if (result.success) {
-            showMessage('Updates fetched successfully. Google Drive integration needed.', 'success');
-            // Set branchData for subsequent loadBranchData
-            window.branchData = result.data;
+            showMessage('Branch data synced from backend.', 'success');
+            window.branchData = {
+                branchDetails: result.branchDetails,
+                products: result.products,
+                offers: result.offers,
+                categories: result.categories
+            };
             await loadBranchData();
             populateProducts();
+            updateBranchInfo();
         } else {
-            showMessage(result.message || 'Pull sync failed', 'error');
+            showMessage(result.message || 'Sync failed', 'error');
         }
     } catch (error) {
         console.error('Pull sync error:', error);
-        showMessage('Pull sync failed', 'error');
+        showMessage('Sync failed', 'error');
     }
 }
 

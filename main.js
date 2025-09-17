@@ -4,63 +4,13 @@ const path = require('path');
 const fs = require('fs');
 const XLSX = require('xlsx');
 const bcrypt = require('bcrypt');
-const { google } = require('googleapis');
-const archiver = require('archiver');
-const unzipper = require('unzipper');
+const axios = require('axios');
 
 // Global variables
-// Google Drive config
-const DRIVE_FOLDER_ID = '1JwJxZin35ZjFjDw6VxPCg2HVpw9VmzOb'; // <-- Set your folder ID here
-const OAUTH_CREDENTIALS_PATH = path.join(__dirname, 'client_id.json');
-const OAUTH_TOKEN_PATH = path.join(__dirname, 'tokens.json');
-let oAuth2Client = null;
+// Backend API config
+const BACKEND_API_URL = 'https://billing3-backend.onrender.com'; // Updated to Render.com backend URL
 
-function getOAuth2Client(callback) {
-  if (!fs.existsSync(OAUTH_CREDENTIALS_PATH)) {
-    console.error('OAuth client_id.json not found.');
-    return null;
-  }
-  const credentials = JSON.parse(fs.readFileSync(OAUTH_CREDENTIALS_PATH));
-  const { client_id, client_secret, redirect_uris } = credentials.installed;
-  oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
-  if (fs.existsSync(OAUTH_TOKEN_PATH)) {
-    const tokens = JSON.parse(fs.readFileSync(OAUTH_TOKEN_PATH));
-    oAuth2Client.setCredentials(tokens);
-    if (callback) callback(oAuth2Client);
-    return oAuth2Client;
-  } else {
-    // First time: send auth URL to renderer and wait for code
-    if (mainWindow) {
-      const authUrl = oAuth2Client.generateAuthUrl({
-        access_type: 'offline',
-        scope: ['https://www.googleapis.com/auth/drive.file']
-      });
-      mainWindow.webContents.send('oauth-url', authUrl);
-    }
-    // The code will be received via IPC handler below
-    return null;
-  }
-}
 
-// IPC handler to receive OAuth code from renderer
-ipcMain.on('oauth-code', (event, code) => {
-  if (!oAuth2Client) {
-    // Try to reinitialize
-    if (!fs.existsSync(OAUTH_CREDENTIALS_PATH)) return;
-    const credentials = JSON.parse(fs.readFileSync(OAUTH_CREDENTIALS_PATH));
-    const { client_id, client_secret, redirect_uris } = credentials.installed;
-    oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
-  }
-  oAuth2Client.getToken(code, (err, token) => {
-    if (err) {
-      mainWindow.webContents.send('oauth-error', 'Error retrieving access token: ' + err.message);
-      return;
-    }
-    oAuth2Client.setCredentials(token);
-    fs.writeFileSync(OAUTH_TOKEN_PATH, JSON.stringify(token));
-    mainWindow.webContents.send('oauth-success', 'Authentication successful! You can now sync.');
-  });
-});
 
 let mainWindow;
 let adminWindow;
@@ -392,67 +342,7 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
   }
 });
 
-// --- MOCK GOOGLE DRIVE SYNC (REMOVE WHEN TESTING REAL SYNC) ---
-// ipcMain.handle('push-sync', async (event) => {
-//   console.log('[MOCK] push-sync called');
-//   const dataDir = path.join(__dirname, 'data');
-//   const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
-//   let allBranchData = [];
-//   for (const file of files) {
-//     const branchCode = file.replace('branch_', '').replace('.xlsx', '');
-//     excelManager.setBranchPath(branchCode);
-//     const loaded = await excelManager.loadBranchData(branchCode);
-//     if (!loaded) continue;
-//     // Update last_sync_ts for each branch
-//     inMemoryData.branchDetails.last_sync_ts = new Date().toISOString();
-//     await excelManager.saveBranchData();
-//     // Log data for each branch
-//     console.log(`Pushed branch ${branchCode}:`);
-//     console.log('branch_details:', JSON.stringify(inMemoryData.branchDetails, null, 2));
-//     console.log('products:', JSON.stringify(inMemoryData.products, null, 2));
-//     console.log('offers:', JSON.stringify(inMemoryData.offers, null, 2));
-//     allBranchData.push({
-//       branch_details: inMemoryData.branchDetails,
-//       products: inMemoryData.products,
-//       offers: inMemoryData.offers,
-//       categories: inMemoryData.categories
-//     });
-//   }
-//   return {
-//     success: true,
-//     message: '[MOCK] Sync package pushed for all branches (no real upload).',
-//     data: allBranchData
-//   };
-// });
-
-// ipcMain.handle('pull-sync', async (event) => {
-//   console.log('[MOCK] pull-sync called');
-//   const dataDir = path.join(__dirname, 'data');
-//   const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
-//   let allBranchData = [];
-//   for (const file of files) {
-//     const branchCode = file.replace('branch_', '').replace('.xlsx', '');
-//     excelManager.setBranchPath(branchCode);
-//     const loaded = await excelManager.loadBranchData(branchCode);
-//     if (!loaded) continue;
-//     // Log data for each branch
-//     console.log(`[MOCK] Pulled branch ${branchCode}:`);
-//     console.log('branch_details:', JSON.stringify(inMemoryData.branchDetails, null, 2));
-//     console.log('products:', JSON.stringify(inMemoryData.products, null, 2));
-//     console.log('offers:', JSON.stringify(inMemoryData.offers, null, 2));
-//     allBranchData.push({
-//       branch_details: inMemoryData.branchDetails,
-//       products: inMemoryData.products,
-//       offers: inMemoryData.offers,
-//       categories: inMemoryData.categories
-//     });
-//   }
-//   return {
-//     success: true,
-//     message: '[MOCK] Sync package pulled for all branches (no real download).',
-//     data: allBranchData
-//   };
-// });
+// ...existing code...
 // --- END MOCK GOOGLE DRIVE SYNC ---
 ipcMain.handle('login', async (event, credentials) => {
   try {
@@ -502,6 +392,7 @@ ipcMain.handle('authenticateUser', async (event, branchPassword) => {
           if (branch && branch.password && branchPassword === branch.password) {
             // Load branch data
             currentBranch = branchCode;
+            console.log('[AUTH] Set currentBranch:', currentBranch);
             excelManager.setBranchPath(branchCode);
             const success = await excelManager.loadBranchData();
             if (success) {
@@ -534,6 +425,7 @@ ipcMain.handle('authenticateUser', async (event, branchPassword) => {
 ipcMain.handle('load-branch-file', async (event, branchCode) => {
   try {
     currentBranch = branchCode;
+    console.log('[LOAD] Set currentBranch:', currentBranch);
     excelManager.setBranchPath(branchCode);
     const success = await excelManager.loadBranchData();
     
@@ -1066,11 +958,9 @@ ipcMain.handle('get-reports', async (event, filter) => {
   }
 });
 
+// Admin: Sync (upload Excel to backend)
 ipcMain.handle('push-sync', async (event) => {
   try {
-    const auth = getOAuth2Client();
-    if (!auth) throw new Error('No OAuth2 client available');
-    const drive = google.drive({ version: 'v3', auth });
     const dataDir = path.join(__dirname, 'data');
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
     let allBranchData = [];
@@ -1079,45 +969,24 @@ ipcMain.handle('push-sync', async (event) => {
       excelManager.setBranchPath(branchCode);
       const loaded = await excelManager.loadBranchData(branchCode);
       if (!loaded) continue;
-      const manifest = {
-        version: inMemoryData.settings.version || '1.0.0',
-        timestamp: new Date().toISOString(),
-        branch_code: branchCode
-      };
-      const packageData = {
-        manifest,
-        branch_details: inMemoryData.branchDetails,
-        products: inMemoryData.products,
-        offers: inMemoryData.offers,
-        categories: inMemoryData.categories
-      };
-      // Prepare buffer and stream
-      const payload = JSON.stringify(packageData);
-      const stream = require('stream');
-      const buf = Buffer.from(payload);
-      const rs = new stream.PassThrough();
-      rs.end(buf);
-      // Upload to Google Drive
-      const fileName = `branch_${branchCode}_package_v${manifest.version}.json`;
-      await drive.files.create({
-        requestBody: {
-          name: fileName,
-          parents: [DRIVE_FOLDER_ID],
-          mimeType: 'application/json'
-        },
-        media: {
-          mimeType: 'application/json',
-          body: rs
-        }
+      // Upload Excel file to backend
+      const filePath = excelManager.branchFilePath;
+      const FormData = require('form-data');
+      const formData = new FormData();
+      formData.append('branch', branchCode); // Append branch first
+      formData.append('file', fs.createReadStream(filePath));
+      console.log('[SYNC] Uploading file for branch:', branchCode, '| currentBranch:', currentBranch);
+      const res = await axios.post(`${BACKEND_API_URL}/sync/upload`, formData, {
+        headers: formData.getHeaders()
       });
       // Update last sync timestamp
       inMemoryData.branchDetails.last_sync_ts = new Date().toISOString();
       await excelManager.saveBranchData();
-      allBranchData.push(packageData);
+      allBranchData.push({ branchCode, uploadResult: res.data });
     }
     return {
       success: true,
-      message: 'Sync packages pushed to Google Drive for all branches.',
+      message: 'Sync packages uploaded to backend for all branches.',
       data: allBranchData
     };
   } catch (error) {
@@ -1126,61 +995,35 @@ ipcMain.handle('push-sync', async (event) => {
   }
 });
 
-ipcMain.handle('pull-sync', async (event) => {
+// User: Sync (download Excel from backend by branchId)
+ipcMain.handle('pull-sync', async (event, branchId) => {
   try {
-    const auth = getOAuth2Client();
-    if (!auth) throw new Error('No OAuth2 client available');
-    const drive = google.drive({ version: 'v3', auth });
-    const dataDir = path.join(__dirname, 'data');
-    const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
-    let allBranchData = [];
-    for (const file of files) {
-      const branchCode = file.replace('branch_', '').replace('.xlsx', '');
-      // Find latest sync package for this branch
-      const q = `('${DRIVE_FOLDER_ID}' in parents) and name contains 'branch_${branchCode}_package_' and mimeType='application/json'`;
-      const listRes = await drive.files.list({
-        q,
-        orderBy: 'modifiedTime desc',
-        pageSize: 1,
-        fields: 'files(id,name,modifiedTime)'
-      });
-      if (!listRes.data.files || listRes.data.files.length === 0) {
-        console.warn(`No sync package found for branch ${branchCode}`);
-        continue;
-      }
-      const fileId = listRes.data.files[0].id;
-      // Download the file
-      const getRes = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
-      let data = '';
-      await new Promise((resolve, reject) => {
-        getRes.data.on('data', chunk => { data += chunk; });
-        getRes.data.on('end', resolve);
-        getRes.data.on('error', reject);
-      });
-      const packageData = JSON.parse(data);
-      // Validate manifest, update inMemoryData
-      if (!packageData.manifest || !packageData.branch_details) {
-        console.warn(`Invalid sync package for branch ${branchCode}`);
-        continue;
-      }
-      excelManager.setBranchPath(branchCode);
-      await excelManager.loadBranchData(branchCode);
-      inMemoryData.branchDetails = packageData.branch_details;
-      inMemoryData.products = packageData.products || [];
-      inMemoryData.offers = packageData.offers || [];
-      inMemoryData.categories = packageData.categories || [];
-      // DO NOT touch bills/bill_items
-      await excelManager.saveBranchData();
-      allBranchData.push(packageData);
+    const effectiveBranchId = branchId || currentBranch;
+    console.log('[PULL] Requested branchId:', branchId, '| effectiveBranchId:', effectiveBranchId, '| currentBranch:', currentBranch);
+    if (!effectiveBranchId) {
+      throw new Error('No branchId provided and currentBranch is not set.');
     }
+    // Download Excel file for current branch from backend
+    const res = await axios.get(`${BACKEND_API_URL}/sync/download?branch=${effectiveBranchId}`, { responseType: 'arraybuffer' });
+    const fileBuffer = Buffer.from(res.data);
+    // Save to local branch file
+    excelManager.setBranchPath(effectiveBranchId);
+    fs.writeFileSync(excelManager.branchFilePath, fileBuffer);
+    // Reload branch data
+    await excelManager.loadBranchData(effectiveBranchId);
+    // Update local database (categories, menu, offers, branch details)
+    await excelManager.saveBranchData();
     return {
       success: true,
-      message: 'Sync packages pulled from Google Drive for all branches.',
-      data: allBranchData
+      message: 'Branch data synced from backend.',
+      branchDetails: inMemoryData.branchDetails,
+      products: inMemoryData.products,
+      offers: inMemoryData.offers,
+      categories: inMemoryData.categories
     };
   } catch (error) {
     console.error('Pull sync error:', error);
-    return { success: false, message: 'Pull sync failed: ' + error.message };
+    return { success: false, message: 'Sync failed: ' + error.message };
   }
 });
 
