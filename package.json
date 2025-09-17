@@ -23,13 +23,13 @@
     "archiver": "^6.0.1",
     "axios": "^1.12.2",
     "bcrypt": "^5.1.1",
-    "electron": "^27.0.0",
     "form-data": "^4.0.4",
     "googleapis": "^128.0.0",
     "unzipper": "^0.10.14",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "electron": "^27.0.0",
     "electron-builder": "^24.6.4"
   },
   "build": {
@@ -39,8 +39,8 @@
       "output": "dist"
     },
     "files": [
-      "**/*",
-      "!node_modules/**/*",
+  "**/*",
+  "node_modules/**/*",
       "!dist/**/*",
       "!*.md"
     ],

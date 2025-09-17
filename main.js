@@ -6,6 +6,15 @@ const XLSX = require('xlsx');
 const bcrypt = require('bcrypt');
 const axios = require('axios');
 
+// Get persistent user data directory for Excel files
+let userDataDir;
+let logFilePath;
+function logToFile(...args) {
+  if (!logFilePath) return;
+  const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : a)).join(' ');
+  fs.appendFileSync(logFilePath, `[${new Date().toISOString()}] ${msg}\n`);
+}
+
 // Global variables
 // Backend API config
 const BACKEND_API_URL = 'https://billing3-backend.onrender.com'; // Updated to Render.com backend URL
@@ -28,47 +37,103 @@ let inMemoryData = {
 };
 
 // Excel file utilities
+// Utility functions for robust Excel file management
+function getBranchFile(userDataDir, branchId) {
+  const dataDir = path.join(userDataDir, 'data');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  return path.join(dataDir, `branch_${branchId}.xlsx`);
+}
+
+function getTemplateFile(branchId) {
+  // Template location can be in templates/ or userDataDir/data (fallback)
+  const templatePath = path.join(__dirname, 'templates', `branch_${branchId}.xlsx`);
+  if (fs.existsSync(templatePath)) return templatePath;
+  if (typeof userDataDir !== 'undefined' && userDataDir) {
+    const fallbackPath = path.join(userDataDir, 'data', `branch_${branchId}.xlsx`);
+    if (fs.existsSync(fallbackPath)) return fallbackPath;
+  }
+  return null;
+}
+
+function ensureBranchFile(userDataDir, branchId) {
+  const branchFile = getBranchFile(userDataDir, branchId);
+  if (!fs.existsSync(branchFile)) {
+    // Try to copy template if available
+    const templateFile = getTemplateFile(branchId);
+    if (templateFile) {
+      fs.copyFileSync(templateFile, branchFile);
+    } else {
+      // Create empty Excel file with required sheets
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([]), 'branch_details');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([]), 'products');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([]), 'offers');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([]), 'categories');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([]), 'bills');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([]), 'bill_items');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+        { key: 'lastCleanupDate', value: new Date().toISOString().split('T')[0] },
+        { key: 'version', value: '1.0.0' }
+      ]), 'settings');
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+        { username: 'admin', password: 'admin123', role: 'admin' },
+        { username: 'user', password: 'user123', role: 'user' }
+      ]), 'users');
+      XLSX.writeFile(workbook, branchFile);
+    }
+  }
+  return branchFile;
+}
+
+function readExcel(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  return XLSX.readFile(filePath);
+}
+
+function updateExcel(filePath, sheetName, data) {
+  let workbook = fs.existsSync(filePath) ? XLSX.readFile(filePath) : XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(data);
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+  XLSX.writeFile(workbook, filePath);
+}
+
 class ExcelManager {
-  constructor() {
+  constructor(userDataDir) {
+    this.userDataDir = userDataDir;
     this.branchFilePath = null;
   }
 
   setBranchPath(branchCode) {
-    this.branchFilePath = path.join(__dirname, 'data', `branch_${branchCode}.xlsx`);
-    // Ensure data directory exists
-    const dataDir = path.dirname(this.branchFilePath);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
+    this.branchFilePath = ensureBranchFile(this.userDataDir, branchCode);
   }
 
   async loadBranchData(branchCode) {
+    logToFile('[DEBUG] Loading Excel file:', this.branchFilePath);
     if (!this.branchFilePath || !fs.existsSync(this.branchFilePath)) {
-      return this.createNewBranchFile();
+      this.branchFilePath = ensureBranchFile(this.userDataDir, branchCode);
     }
-
     try {
-      const workbook = XLSX.readFile(this.branchFilePath);
-
+      const workbook = readExcel(this.branchFilePath);
+      logToFile('[DEBUG] workbook:', workbook);
       // Load branch details
       if (workbook.Sheets['branch_details']) {
         const branchData = XLSX.utils.sheet_to_json(workbook.Sheets['branch_details']);
         inMemoryData.branchDetails = branchData[0] || {};
+        logToFile('[DEBUG] Loaded branchDetails:', inMemoryData.branchDetails);
       }
-
       // Load products
       if (workbook.Sheets['products']) {
         let allProducts = XLSX.utils.sheet_to_json(workbook.Sheets['products']);
-        // Only keep products for the branchCode passed in
         inMemoryData.products = allProducts.filter(p => p.branch === branchCode);
+        logToFile('[DEBUG] Loaded products:', inMemoryData.products);
       }
-
       // Load offers
       if (workbook.Sheets['offers']) {
         inMemoryData.offers = XLSX.utils.sheet_to_json(workbook.Sheets['offers']);
         console.log('Loaded offers for', this.branchFilePath, inMemoryData.offers);
       }
-
       // Load categories
       if (workbook.Sheets['categories']) {
         const cats = XLSX.utils.sheet_to_json(workbook.Sheets['categories']);
@@ -76,7 +141,6 @@ class ExcelManager {
       } else {
         inMemoryData.categories = [];
       }
-
       // Load bills (only today and yesterday)
       if (workbook.Sheets['bills']) {
         const allBills = XLSX.utils.sheet_to_json(workbook.Sheets['bills']);
@@ -88,19 +152,16 @@ class ExcelManager {
         );
         console.log('[DEBUG] inMemoryData.bills after filter:', inMemoryData.bills);
       }
-
       // Load bill items (only for today and yesterday)
       if (workbook.Sheets['bill_items']) {
         const allBillItems = XLSX.utils.sheet_to_json(workbook.Sheets['bill_items']);
         const today = new Date().toISOString().split('T')[0];
         const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
         const todayBills = inMemoryData.bills.map(b => b.bill_no);
         inMemoryData.billItems = allBillItems.filter(item =>
           todayBills.includes(item.bill_no)
         );
       }
-
       // Load settings
       if (workbook.Sheets['settings']) {
         const settingsData = XLSX.utils.sheet_to_json(workbook.Sheets['settings']);
@@ -109,75 +170,18 @@ class ExcelManager {
           inMemoryData.settings[setting.key] = setting.value;
         });
       }
-
       return true;
     } catch (error) {
-      console.error('Error loading branch data:', error);
+      logToFile('Error loading branch data:', error);
       return false;
     }
   }
 
   async createNewBranchFile() {
-    const workbook = XLSX.utils.book_new();
-    
-    // Create branch_details sheet using inMemoryData.branchDetails (populated from form)
-    const branchDetails = [{
-      branch_code: inMemoryData.branchDetails.branch_code || currentBranch,
-      name: inMemoryData.branchDetails.name || '',
-      password: inMemoryData.branchDetails.password || '123456',
-      gst: inMemoryData.branchDetails.gst || '',
-      fssai: inMemoryData.branchDetails.fssai || '',
-      bill_address: inMemoryData.branchDetails.bill_address || '',
-      phone: inMemoryData.branchDetails.phone || '',
-      email: inMemoryData.branchDetails.email || '',
-      last_sync_ts: new Date().toISOString()
-    }];
-    const branchSheet = XLSX.utils.json_to_sheet(branchDetails);
-    XLSX.utils.book_append_sheet(workbook, branchSheet, 'branch_details');
-
-    // Create products sheet
-    const productsSheet = XLSX.utils.json_to_sheet([]);
-    XLSX.utils.book_append_sheet(workbook, productsSheet, 'products');
-
-    // Create offers sheet
-    const offersSheet = XLSX.utils.json_to_sheet([]);
-    XLSX.utils.book_append_sheet(workbook, offersSheet, 'offers');
-
-    // Create categories sheet
-    const categoriesSheet = XLSX.utils.json_to_sheet([]);
-    XLSX.utils.book_append_sheet(workbook, categoriesSheet, 'categories');
-
-    // Create bills sheet
-    const billsSheet = XLSX.utils.json_to_sheet([]);
-    XLSX.utils.book_append_sheet(workbook, billsSheet, 'bills');
-
-    // Create bill_items sheet
-    const billItemsSheet = XLSX.utils.json_to_sheet([]);
-    XLSX.utils.book_append_sheet(workbook, billItemsSheet, 'bill_items');
-
-    // Create settings sheet
-    const settings = [
-      { key: 'lastCleanupDate', value: new Date().toISOString().split('T')[0] },
-      { key: 'version', value: '1.0.0' }
-    ];
-    const settingsSheet = XLSX.utils.json_to_sheet(settings);
-    XLSX.utils.book_append_sheet(workbook, settingsSheet, 'settings');
-
-    // Create users sheet
-    const users = [
-      { username: 'admin', password: 'admin123', role: 'admin' },
-      { username: 'user', password: 'user123', role: 'user' }
-    ];
-    const usersSheet = XLSX.utils.json_to_sheet(users);
-    XLSX.utils.book_append_sheet(workbook, usersSheet, 'users');
-
-    try {
-      XLSX.writeFile(workbook, this.branchFilePath);
-      return true;
-    } catch (error) {
-      console.error('Error creating branch file:', error);
-      return false;
-    }
+    // Always use ensureBranchFile to create the file
+    if (!this.branchFilePath) return false;
+    ensureBranchFile(this.userDataDir, currentBranch);
+    return true;
   }
 
   async saveBranchData() {
@@ -185,9 +189,7 @@ class ExcelManager {
 
     try {
       const workbook = XLSX.utils.book_new();
-
-      // Debug log: print bills before saving
-      console.log('DEBUG: Bills to be saved in Excel:', JSON.stringify(inMemoryData.bills, null, 2));
+      logToFile('DEBUG: Bills to be saved in Excel:', JSON.stringify(inMemoryData.bills, null, 2));
 
       // Save branch details
       const branchSheet = XLSX.utils.json_to_sheet([inMemoryData.branchDetails]);
@@ -203,7 +205,7 @@ class ExcelManager {
             productsToSave = XLSX.utils.sheet_to_json(existingWorkbook.Sheets['products']);
           }
         } catch (err) {
-          console.error('Error preserving products sheet:', err);
+          logToFile('Error preserving products sheet:', err);
         }
       }
       const productsSheet = XLSX.utils.json_to_sheet(productsToSave || []);
@@ -255,7 +257,7 @@ class ExcelManager {
       XLSX.writeFile(workbook, this.branchFilePath);
       return true;
     } catch (error) {
-      console.error('Error saving branch data:', error);
+  logToFile('Error saving branch data:', error);
       return false;
     }
   }
@@ -298,7 +300,7 @@ class ExcelManager {
   }
 }
 
-const excelManager = new ExcelManager();
+let excelManager;
 
 // IPC Handlers
 
@@ -371,30 +373,27 @@ ipcMain.handle('login', async (event, credentials) => {
 
 ipcMain.handle('authenticateUser', async (event, branchPassword) => {
   try {
-    // Find branch by password
-    const dataDir = path.join(__dirname, 'data');
+    // Find branch by password using userDataDir/data
+    const dataDir = path.join(userDataDir, 'data');
     if (!fs.existsSync(dataDir)) {
-      return { success: false, message: 'No branches found' };
+      fs.mkdirSync(dataDir, { recursive: true });
     }
-
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
-    
+    let foundLocal = false;
     for (const file of files) {
       const branchCode = file.replace('branch_', '').replace('.xlsx', '');
-      const filePath = path.join(dataDir, file);
-      
+      const filePath = getBranchFile(userDataDir, branchCode);
       try {
-        const workbook = XLSX.readFile(filePath);
-        if (workbook.Sheets['branch_details']) {
+        const workbook = readExcel(filePath);
+        if (workbook && workbook.Sheets['branch_details']) {
           const branchData = XLSX.utils.sheet_to_json(workbook.Sheets['branch_details']);
           const branch = branchData[0];
-          
           if (branch && branch.password && branchPassword === branch.password) {
             // Load branch data
             currentBranch = branchCode;
             console.log('[AUTH] Set currentBranch:', currentBranch);
             excelManager.setBranchPath(branchCode);
-            const success = await excelManager.loadBranchData();
+            const success = await excelManager.loadBranchData(branchCode);
             if (success) {
               await excelManager.cleanupOldBills();
               return {
@@ -407,6 +406,8 @@ ipcMain.handle('authenticateUser', async (event, branchPassword) => {
                 }
               };
             }
+            foundLocal = true;
+            break;
           }
         }
       } catch (error) {
@@ -414,8 +415,39 @@ ipcMain.handle('authenticateUser', async (event, branchPassword) => {
         continue;
       }
     }
-    
-    return { success: false, message: 'Invalid branch password' };
+    // If not found locally, query backend
+    if (!foundLocal) {
+      try {
+        // Call backend API to find branch by password
+        const res = await axios.post(`${BACKEND_API_URL}/sync/find-branch-by-password`, { password: branchPassword });
+        if (res.data && res.data.branchCode && res.data.fileBuffer) {
+          const branchCode = res.data.branchCode;
+          const filePath = getBranchFile(userDataDir, branchCode);
+          // Save Excel file from backend
+          fs.writeFileSync(filePath, Buffer.from(res.data.fileBuffer.data));
+          // Load branch data
+          currentBranch = branchCode;
+          excelManager.setBranchPath(branchCode);
+          const success = await excelManager.loadBranchData(branchCode);
+          if (success) {
+            await excelManager.cleanupOldBills();
+            return {
+              success: true,
+              branchCode: branchCode,
+              data: {
+                branchDetails: inMemoryData.branchDetails,
+                products: inMemoryData.products,
+                offers: inMemoryData.offers
+              }
+            };
+          }
+        }
+        return { success: false, message: 'Invalid branch password or branch not found in backend.' };
+      } catch (error) {
+        console.error('Backend branch lookup error:', error);
+        return { success: false, message: 'Backend error: ' + error.message };
+      }
+    }
   } catch (error) {
     console.error('User authentication error:', error);
     return { success: false, message: 'Authentication failed' };
@@ -450,21 +482,18 @@ ipcMain.handle('load-branch-file', async (event, branchCode) => {
 
 ipcMain.handle('get-all-branches', async (event) => {
   try {
-    const dataDir = path.join(__dirname, 'data');
+    const dataDir = path.join(userDataDir, 'data');
     if (!fs.existsSync(dataDir)) {
       return { success: true, branches: [] };
     }
-
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
     const branches = [];
-
     for (const file of files) {
       const branchCode = file.replace('branch_', '').replace('.xlsx', '');
-      const filePath = path.join(dataDir, file);
-      
+      const filePath = getBranchFile(userDataDir, branchCode);
       try {
-        const workbook = XLSX.readFile(filePath);
-        if (workbook.Sheets['branch_details']) {
+        const workbook = readExcel(filePath);
+        if (workbook && workbook.Sheets['branch_details']) {
           const branchData = XLSX.utils.sheet_to_json(workbook.Sheets['branch_details']);
           if (branchData.length > 0) {
             branches.push(branchData[0]);
@@ -475,7 +504,6 @@ ipcMain.handle('get-all-branches', async (event) => {
         continue;
       }
     }
-
     return { success: true, branches };
   } catch (error) {
     console.error('Get all branches error:', error);
@@ -486,17 +514,14 @@ ipcMain.handle('get-all-branches', async (event) => {
 ipcMain.handle('create-branch', async (event, branchDetails) => {
   try {
     const { branch_code } = branchDetails;
-    const filePath = path.join(__dirname, 'data', `branch_${branch_code}.xlsx`);
-    
+    const filePath = getBranchFile(userDataDir, branch_code);
     // Check if branch already exists
     if (fs.existsSync(filePath)) {
       return { success: false, message: 'Branch already exists' };
     }
-
     // Create new branch file
     currentBranch = branch_code;
     excelManager.setBranchPath(branch_code);
-    
     // Set the branch details
     inMemoryData.branchDetails = {
       ...branchDetails,
@@ -536,8 +561,7 @@ ipcMain.handle('create-branch', async (event, branchDetails) => {
 
 ipcMain.handle('delete-branch', async (event, branchCode) => {
   try {
-    const filePath = path.join(__dirname, 'data', `branch_${branchCode}.xlsx`);
-    
+    const filePath = getBranchFile(userDataDir, branchCode);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
       return { success: true, message: 'Branch deleted successfully' };
@@ -656,7 +680,7 @@ console.log(currentBranch);
 ipcMain.handle('save-offers-for-branch', async (event, { branchCode, offers }) => {
   try {
     // Save offers to all branch Excel files, preserving all sheets
-    const dataDir = path.join(__dirname, 'data');
+    const dataDir = path.join(userDataDir, 'data');
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx') && file !== 'branch_GLOBAL.xlsx');
     for (const file of files) {
       const branchCode = file.replace('branch_', '').replace('.xlsx', '');
@@ -696,7 +720,7 @@ ipcMain.handle('save-offers-for-branch', async (event, { branchCode, offers }) =
 ipcMain.handle('save-categories-to-all-branches', async (event, categories) => {
   try {
     // Save categories to all branch Excel files, preserving all sheets
-    const dataDir = path.join(__dirname, 'data');
+    const dataDir = path.join(userDataDir, 'data');
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
     for (const file of files) {
       const branchCode = file.replace('branch_', '').replace('.xlsx', '');
@@ -961,7 +985,7 @@ ipcMain.handle('get-reports', async (event, filter) => {
 // Admin: Sync (upload Excel to backend)
 ipcMain.handle('push-sync', async (event) => {
   try {
-    const dataDir = path.join(__dirname, 'data');
+    const dataDir = path.join(userDataDir, 'data');
     const files = fs.readdirSync(dataDir).filter(file => file.startsWith('branch_') && file.endsWith('.xlsx'));
     let allBranchData = [];
     for (const file of files) {
@@ -1081,6 +1105,10 @@ function createUserWindow() {
 
 // App event handlers
 app.whenReady().then(() => {
+  // Initialize userDataDir and logFilePath after app is ready
+  userDataDir = app.getPath('userData');
+  logFilePath = path.join(userDataDir, 'main.log');
+  excelManager = new ExcelManager(userDataDir);
   createMainWindow();
 });
 

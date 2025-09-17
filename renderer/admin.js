@@ -492,6 +492,9 @@ function populateProductsTable() {
     const tbody = document.querySelector('#productsTable tbody');
     tbody.innerHTML = '';
 
+    // Debug log: show products array before rendering
+    console.log('[DEBUG] Products to display:', products);
+
     products.forEach(product => {
         const row = document.createElement('tr');
         // Find branch name from allBranches
@@ -614,8 +617,10 @@ function clearBranchDetails() {
 
 function updateBranchInfo() {
     if (branchData && branchData.branchDetails) {
-        document.getElementById('branchInfo').textContent = `Branch: ${branchData.branchDetails.name || branchData.branchDetails.branch_code}`;
-        document.getElementById('lastSync').textContent = `Last Sync: ${new Date(branchData.branchDetails.last_sync_ts).toLocaleString()}`;
+        const branchInfo = document.getElementById('branchInfo');
+        const lastSync = document.getElementById('lastSync');
+        if (branchInfo) branchInfo.textContent = `Branch: ${branchData.branchDetails.name || branchData.branchDetails.branch_code}`;
+        if (lastSync) lastSync.textContent = `Last Sync: ${new Date(branchData.branchDetails.last_sync_ts).toLocaleString()}`;
     }
 }
 
