@@ -360,44 +360,54 @@ function setupProductHandlers() {
         const shortcut = parseInt(document.getElementById('productShortcut').value);
         const price = parseFloat(document.getElementById('productPrice').value);
 
-        // Validate shortcut_number
-        if (!name || !category || !branch || isNaN(price) || isNaN(shortcut) || shortcut < 1 || !Number.isInteger(shortcut)) {
-            showMessage('All fields required. Shortcut # must be an integer ≥ 1.', 'error');
+        // Validate required fields (shortcut is optional)
+        if (!name || !category || !branch || isNaN(price)) {
+            showMessage('All fields except shortcut # are required.', 'error');
             return;
         }
-        // Check if shortcut number already exists for this branch
-        if (products.some(p => p.branch === branch && p.shortcut_number === shortcut)) {
-            showMessage('Shortcut number already exists for this branch', 'error');
-            return;
+        // If shortcut is provided, validate it and check for duplicates
+        let shortcutValue = document.getElementById('productShortcut').value;
+        let shortcutParsed = shortcutValue ? parseInt(shortcutValue) : undefined;
+        if (shortcutValue) {
+            if (isNaN(shortcutParsed) || shortcutParsed < 1 || !Number.isInteger(shortcutParsed)) {
+                showMessage('Shortcut # must be an integer ≥ 1 if provided.', 'error');
+                return;
+            }
+            if (products.some(p => p.branch === branch && p.shortcut_number === shortcutParsed)) {
+                showMessage('Shortcut number already exists for this branch', 'error');
+                return;
+            }
         }
-
         const newProduct = {
             product_id: Date.now().toString(),
             name: name,
             category: category,
             branch: branch,
             price: price,
-            shortcut_number: shortcut,
             created_at: new Date().toISOString()
         };
-
-    // Save only to the selected branch
-    let branchProducts = products.filter(p => p.branch === branch);
-    branchProducts.push(newProduct);
-    // Save to backend for selected branch
-    await window.electronAPI.saveProductsForBranch({ branchCode: branch, products: branchProducts });
-
-    // Clear form
-    document.getElementById('productName').value = '';
-    document.getElementById('productCategory').value = '';
-    document.getElementById('productBranch').value = '';
-    document.getElementById('productPrice').value = '';
-    document.getElementById('productShortcut').value = '';
-
-    // Reload all products from all branches for table
-    await loadAllProductsForAdmin();
-    populateProductsTable();
-    showMessage('Product added successfully', 'success');
+        if (shortcutValue) {
+            newProduct.shortcut_number = shortcutParsed;
+        }
+        // Save only to the selected branch
+        let branchProducts = products.filter(p => p.branch === branch);
+        branchProducts.push(newProduct);
+        // Save to backend for selected branch
+        const result = await window.electronAPI.saveProductsForBranch({ branchCode: branch, products: branchProducts });
+        if (!result.success) {
+            showMessage(result.message || 'Failed to add product', 'error');
+            return;
+        }
+        // Clear form
+        document.getElementById('productName').value = '';
+        document.getElementById('productCategory').value = '';
+        document.getElementById('productBranch').value = '';
+        document.getElementById('productPrice').value = '';
+        document.getElementById('productShortcut').value = '';
+        // Reload all products from all branches for table
+        await loadAllProductsForAdmin();
+        populateProductsTable();
+        showMessage('Product added successfully', 'success');
     };
 }
 
@@ -448,8 +458,12 @@ async function saveProducts() {
             result = await window.electronAPI.saveProducts(products);
         }
         if (!result.success) {
-            throw new Error(result.message || 'Failed to save products');
+            showMessage(result.message || 'Failed to save products', 'error');
+            return;
         }
+        // Always reload products after save
+        await loadAllProductsForAdmin();
+        populateProductsTable();
         if (selectedBranchCode) await loadBranchScopedData();
     } catch (error) {
         console.error('Error saving products:', error);
@@ -462,7 +476,8 @@ async function saveOffers() {
         // Always save offers globally
         let result = await window.electronAPI.saveOffersForBranch({ branchCode: 'GLOBAL', offers });
         if (!result.success) {
-            throw new Error(result.message || 'Failed to save offers');
+            showMessage(result.message || 'Failed to save offers', 'error');
+            return;
         }
         // Reload offers from backend
         const branchDataResult = await window.electronAPI.getBranchData(selectedBranchCode || allBranches[0]?.branch_code || '');
@@ -578,7 +593,11 @@ async function deleteProduct(productId) {
         selectedBranchCode = productToDelete.branch;
         // Save only products for this branch
         const branchProducts = products.filter(p => p.branch === selectedBranchCode);
-        await window.electronAPI.saveProductsForBranch({ branchCode: selectedBranchCode, products: branchProducts });
+        const result = await window.electronAPI.saveProductsForBranch({ branchCode: selectedBranchCode, products: branchProducts });
+        if (!result.success) {
+            showMessage(result.message || 'Failed to delete product', 'error');
+            return;
+        }
         await loadAllProductsForAdmin(); // Reload all products from all branches
         populateProductsTable();
         showMessage('Product deleted', 'success');
@@ -698,7 +717,9 @@ function addCategory() {
     const unique = Array.from(new Set(categories));
     window.electronAPI.saveCategoriesToAllBranches(unique).then(async res => {
         if (!res.success) throw new Error('Failed saving categories');
-        await loadBranchScopedData();
+        // Reload categories for all branches
+        await loadAllBranches();
+        populateCategories();
         closeCategoryModal();
         showMessage('Category added successfully to all branches', 'success');
     }).catch(err => {
@@ -760,6 +781,12 @@ function filterProductsByBranch() {
     let filteredProducts = products;
     if (selectedBranch) {
         filteredProducts = products.filter(p => p.branch === selectedBranch);
+    } else {
+        // If 'All Branches' selected, reload all products from all branches
+        loadAllProductsForAdmin().then(() => {
+            populateProductsTable();
+        });
+        return;
     }
     const tbody = document.querySelector('#productsTable tbody');
     tbody.innerHTML = '';
@@ -780,14 +807,6 @@ function filterProductsByBranch() {
     </td>
 `;
         tbody.appendChild(row);
-    });
-}
-
-function clearProductFilter() {
-    document.getElementById('branchFilter').value = '';
-    const rows = document.querySelectorAll('#productsTable tbody tr');
-    rows.forEach(row => {
-        row.style.display = '';
     });
 }
 

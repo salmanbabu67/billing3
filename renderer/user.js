@@ -80,8 +80,31 @@ async function loadBranchData() {
     try {
         // Get data from the main process (already loaded during login)
         // branchData may now be an array of all branches
+        // Defensive: ensure window.branchData and window.currentUser are set if missing
         let allBranchData = window.branchData;
         let branchCode = window.currentBranch;
+        // If branchData is missing, try to recover from preload or backend
+        if (!allBranchData) {
+            if (window.preloadBranchData) {
+                allBranchData = window.preloadBranchData;
+                window.branchData = allBranchData;
+            } else {
+                // Try to fetch from backend if online
+                try {
+                    const result = await window.electronAPI.getBranchData(branchCode);
+                    if (result && result.success) {
+                        allBranchData = result.data;
+                        window.branchData = allBranchData;
+                    }
+                } catch (e) {
+                    // Ignore, will show error below if still missing
+                }
+            }
+        }
+        // Defensive: set window.currentUser if missing
+        if (!window.currentUser && window.preloadCurrentUser) {
+            window.currentUser = window.preloadCurrentUser;
+        }
         console.log('Current branch code:', branchCode, allBranchData, window.currentUser);
         if (!branchCode && Array.isArray(allBranchData) && allBranchData.length === 1) {
             // If only one branch, use its code
@@ -477,17 +500,21 @@ async function generateBill() {
         };
 
         const result = await window.electronAPI.createBill(billData);
-
-        if (result.success) {
-            currentBillNo = result.billNo;
-            document.getElementById('currentBillNo').textContent = currentBillNo;
-            showMessage(`Bill #${currentBillNo} generated successfully`, 'success');
-            // Add bill_no to billData for modal display
-            const billDataWithNo = { ...billData, bill_no: result.billNo };
-            showBillModal(result.billNo, billDataWithNo);
-        } else {
+        if (!result.success) {
             showMessage(result.message || 'Failed to generate bill', 'error');
+            return;
         }
+        currentBillNo = result.billNo;
+        document.getElementById('currentBillNo').textContent = currentBillNo;
+        showMessage(`Bill #${currentBillNo} generated successfully`, 'success');
+        // Add bill_no to billData for modal display
+        const billDataWithNo = { ...billData, bill_no: result.billNo };
+        showBillModal(result.billNo, billDataWithNo);
+        // Clear bill section after generation
+        currentBill = { items: [], total: 0 };
+        updateBillDisplay();
+        // Always reload branch data after bill generation
+        await loadBranchData();
     } catch (error) {
         console.error('Error generating bill:', error);
         showMessage('Failed to generate bill', 'error');
@@ -565,6 +592,20 @@ function closeBillModal() {
 function getBillHtml(billData) {
     console.log(billData);
     const branch = billData.branchDetails || {};
+    // Calculate subtotal, discount, taxes, and grand total for accurate display
+    const subtotal = billData.items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    let discount = 0;
+    if (branchData && branchData.offers && branchData.offers.length > 0) {
+        const activeOffer = branchData.offers.find(o => o.discount);
+        if (activeOffer) {
+            discount = subtotal * (activeOffer.discount / 100);
+        }
+    }
+    const discountedSubtotal = subtotal - discount;
+    const sgst = billData.sgst !== undefined ? billData.sgst : discountedSubtotal * 0.025;
+    const cgst = billData.cgst !== undefined ? billData.cgst : discountedSubtotal * 0.025;
+    const grandTotal = discountedSubtotal + sgst + cgst;
+
     let html = `<div class="bill-modal">
         <div class="branch-details">${branch.name || ''}</div>
         <div class="branch-address">${branch.address || branch.bill_address || ''}</div>
@@ -582,17 +623,17 @@ function getBillHtml(billData) {
         <table>
             <thead><tr><th>ITEM NAME</th><th>QTY</th><th>PRICE</th><th>AMOUNT</th></tr></thead><tbody>`;
     billData.items.forEach(item => {
-        html += `<tr><td style="text-align: justify">${item.name || item.product_id}</td><td>${item.qty}Pk</td><td>${item.price.toFixed(2)}</td><td style="text-align: end">${item.total.toFixed(2)}</td></tr>`;
+        html += `<tr><td style="text-align: justify">${item.name || item.product_id}</td><td>${item.qty}Pk</td><td>${item.price.toFixed(2)}</td><td style="text-align: end">${(item.price * item.qty).toFixed(2)}</td></tr>`;
     });
     html += `</tbody></table>
         <div class="bill-summary">
             <div>Total Item(s): ${billData.items.length}</div>
             <div>QTY: ${billData.items.reduce((sum, item) => sum + item.qty, 0).toFixed(3)}</div>
-            <div>${billData.items.reduce((sum, item) => sum + item.total, 0).toFixed(2)}</div>
+            <div>Discount: -₹${discount.toFixed(2)}</div>
         </div>
-        <div class="bill-taxes"> <div>CGST @ 2.50%</div>  <div>${billData.cgst ? billData.cgst.toFixed(2) : ''}</div></div>
-        <div class="bill-taxes"> <div>SGST @ 2.50%</div>  <div>${billData.sgst ? billData.sgst.toFixed(2) : ''}</div></div>
-        <div class="bill-total"><div>Total</div> <div>₹ ${billData.total ? billData.total.toFixed(2) : ''}</div></div>
+        <div class="bill-taxes"> <div>CGST @ 2.50%</div>  <div>₹${cgst.toFixed(2)}</div></div>
+        <div class="bill-taxes"> <div>SGST @ 2.50%</div>  <div>₹${sgst.toFixed(2)}</div></div>
+        <div class="bill-total"><div>Total</div> <div>₹ ${grandTotal.toFixed(2)}</div></div>
         <div class="bill-footer">GST ADDED OF ALL TAXES<br><span>THANK YOU VISIT AGAIN</span></div>
     </div>`;
     return html;
@@ -846,7 +887,7 @@ function printCurrentModalTab() {
     printWindow.print();
 }
 function getReportHeader(reportType) {
-    const details = branchData?.branch_details || {};
+    const details = branchData?.branchDetails || {};
     console.log('Branch Details for Report Header:', branchData);
     const branchName = details.name || details.branch_code || 'Branch';
     const gst = details.gst || 'GSTIN-XXXX';
@@ -965,8 +1006,14 @@ async function pullSync() {
 
 function updateBranchInfo() {
     if (branchData && branchData.branchDetails) {
-        document.getElementById('branchInfo').textContent = `Branch: ${branchData.branchDetails.name || branchData.branchDetails.branch_code}`;
-        document.getElementById('lastSync').textContent = `Last Sync: ${new Date(branchData.branchDetails.last_sync_ts).toLocaleString()}`;
+        const branchInfoEl = document.getElementById('branchInfo');
+        const lastSyncEl = document.getElementById('lastSync');
+        if (branchInfoEl) {
+            branchInfoEl.textContent = `Branch: ${branchData.branchDetails.name || branchData.branchDetails.branch_code}`;
+        }
+        if (lastSyncEl) {
+            lastSyncEl.textContent = `Last Sync: ${new Date(branchData.branchDetails.last_sync_ts).toLocaleString()}`;
+        }
     }
 }
 

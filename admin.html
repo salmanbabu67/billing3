@@ -10,7 +10,6 @@
     <div class="header">
         <h1>Admin Dashboard</h1>
         <div class="header-info">
-            <span id="lastSync">Last Sync: Never</span>
             <button class="btn btn-secondary" onclick="logout()">Logout</button>
         </div>
     </div>
@@ -164,7 +163,6 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <button class="btn btn-secondary" onclick="clearProductFilter()">Clear Filter</button>
                 </div>
             </div>
             
@@ -230,9 +228,6 @@
             <div class="sync-section">
                 <h3>Sync Status</h3>
                 <div class="sync-info">
-                    <div>
-                        <strong>Last Sync:</strong> <span id="lastSyncTime">Never</span>
-                    </div>
                     <div>
                         <strong>Version:</strong> <span id="versionInfo">1.0.0</span>
                     </div>

@@ -13,7 +13,6 @@
         <h1>POS Billing System</h1>
         <div class="header-info">
             <span id="branchInfo">Branch: Loading...</span>
-            <span id="lastSync">Last Sync: Never</span>
             <button class="btn btn-secondary" onclick="logout()">Logout</button>
             <button class="btn btn-info" id="pullSyncBtn" onclick="pullSync()">Pull Sync</button>
             <button class="btn btn-primary" id="openReportsBtn" onclick="openReportsModal()">Reports</button>
@@ -77,10 +76,10 @@
         <!-- Reports Modal -->
         <div id="reportsModal" class="custom-modal hidden">
             <div class="custom-modal-content" style="max-width:900px;min-width:700px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-                    <h2 style="font-size:1.5rem;font-weight:700;color:#222;">My Bills & Reports</h2>
+                <div style="position:relative;margin-bottom:1.5rem;">
                     <button id="closeReportsModal" onclick="closeReportsModal()"
-                        style="background:none;border:none;font-size:2rem;line-height:1;cursor:pointer;color:#888;">&times;</button>
+                        style="position:absolute;left:0;top:0;background:none;border:none;font-size:2rem;line-height:1;cursor:pointer;color:#888;z-index:2;text-align:right;">&times;</button>
+                    <h2 style="font-size:1.5rem;font-weight:700;color:#222;text-align:center;">My Bills & Reports</h2>
                 </div>
                 <div class="modal-tabs" style="display:flex;gap:1rem;margin-bottom:1.5rem;">
                     <button class="modal-tab" id="tab-bills" onclick="showModalTab('bills')">Bills</button>

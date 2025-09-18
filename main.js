@@ -257,7 +257,7 @@ class ExcelManager {
       XLSX.writeFile(workbook, this.branchFilePath);
       return true;
     } catch (error) {
-  logToFile('Error saving branch data:', error);
+      logToFile('Error saving branch data:', error);
       return false;
     }
   }
@@ -269,13 +269,13 @@ class ExcelManager {
 
     if (lastCleanupDate !== today) {
       // Remove bills older than yesterday
-      inMemoryData.bills = inMemoryData.bills.filter(bill => 
+      inMemoryData.bills = inMemoryData.bills.filter(bill =>
         bill.date_iso === today || bill.date_iso === yesterday
       );
 
       // Remove corresponding bill items
       const validBillNos = inMemoryData.bills.map(b => b.bill_no);
-      inMemoryData.billItems = inMemoryData.billItems.filter(item => 
+      inMemoryData.billItems = inMemoryData.billItems.filter(item =>
         validBillNos.includes(item.bill_no)
       );
 
@@ -290,11 +290,11 @@ class ExcelManager {
   getNextBillNumber() {
     const today = new Date().toISOString().split('T')[0];
     const todayBills = inMemoryData.bills.filter(bill => bill.date_iso === today);
-    
+
     if (todayBills.length === 0) {
       return 1;
     }
-    
+
     const maxBillNo = Math.max(...todayBills.map(bill => bill.bill_no));
     return maxBillNo + 1;
   }
@@ -349,21 +349,21 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
 ipcMain.handle('login', async (event, credentials) => {
   try {
     const { username, password } = credentials;
-    
+
     // Load users from Excel
     if (fs.existsSync(excelManager.branchFilePath)) {
       const workbook = XLSX.readFile(excelManager.branchFilePath);
       if (workbook.Sheets['users']) {
         const users = XLSX.utils.sheet_to_json(workbook.Sheets['users']);
         const user = users.find(u => u.username === username);
-        
+
         if (user && user.password === password) {
           currentUser = user;
           return { success: true, user: { username: user.username, role: user.role } };
         }
       }
     }
-    
+
     return { success: false, message: 'Invalid credentials' };
   } catch (error) {
     console.error('Login error:', error);
@@ -423,9 +423,31 @@ ipcMain.handle('authenticateUser', async (event, branchPassword) => {
         if (res.data && res.data.branchCode && res.data.fileBuffer) {
           const branchCode = res.data.branchCode;
           const filePath = getBranchFile(userDataDir, branchCode);
+          // Defensive: handle fileBuffer as base64 string or Buffer
+          let fileBuffer = res.data.fileBuffer;
+          if (!fileBuffer) {
+            console.error('[SYNC] Backend response missing fileBuffer:', res.data);
+            return { success: false, message: 'Backend did not return branch file.' };
+          }
+          // If fileBuffer is a base64 string, decode it
+          let bufferToWrite;
+          if (typeof fileBuffer === 'string') {
+            try {
+              bufferToWrite = Buffer.from(fileBuffer, 'base64');
+            } catch (err) {
+              console.error('[SYNC] Failed to decode base64 fileBuffer:', err);
+              return { success: false, message: 'Failed to decode branch file from backend.' };
+            }
+          } else if (fileBuffer.data) {
+            bufferToWrite = Buffer.from(fileBuffer.data);
+          } else if (Buffer.isBuffer(fileBuffer)) {
+            bufferToWrite = fileBuffer;
+          } else {
+            console.error('[SYNC] Unknown fileBuffer format:', fileBuffer);
+            return { success: false, message: 'Unknown branch file format from backend.' };
+          }
           // Save Excel file from backend
-          fs.writeFileSync(filePath, Buffer.from(res.data.fileBuffer.data));
-          // Load branch data
+          fs.writeFileSync(filePath, bufferToWrite);          // Load branch data
           currentBranch = branchCode;
           excelManager.setBranchPath(branchCode);
           const success = await excelManager.loadBranchData(branchCode);
@@ -460,7 +482,7 @@ ipcMain.handle('load-branch-file', async (event, branchCode) => {
     console.log('[LOAD] Set currentBranch:', currentBranch);
     excelManager.setBranchPath(branchCode);
     const success = await excelManager.loadBranchData();
-    
+
     if (success) {
       await excelManager.cleanupOldBills();
       return {
@@ -472,7 +494,7 @@ ipcMain.handle('load-branch-file', async (event, branchCode) => {
         }
       };
     }
-    
+
     return { success: false, message: 'Failed to load branch data' };
   } catch (error) {
     console.error('Load branch error:', error);
@@ -528,7 +550,7 @@ ipcMain.handle('create-branch', async (event, branchDetails) => {
       password: branchDetails.password,
       last_sync_ts: new Date().toISOString()
     };
-    
+
     // Initialize empty arrays
     inMemoryData.products = [];
     inMemoryData.offers = [];
@@ -882,19 +904,19 @@ ipcMain.handle('create-bill', async (event, billData) => {
 ipcMain.handle('print-bill', async (event, billNo) => {
   try {
     const bill = inMemoryData.bills.find(b => b.bill_no === billNo);
-    
+
     if (!bill) {
       return { success: false, message: 'Bill not found' };
     }
-    
+
     if (bill.printed === 1) {
       return { success: false, message: 'Already printed' };
     }
-    
+
     // Mark as printed
     bill.printed = 1;
     await excelManager.saveBranchData();
-    
+
     // Get the appropriate window for printing
     const targetWindow = userWindow || mainWindow;
     if (targetWindow) {
@@ -904,7 +926,7 @@ ipcMain.handle('print-bill', async (event, billNo) => {
         copies: 1
       });
     }
-    
+
     return { success: true };
   } catch (error) {
     console.error('Print bill error:', error);
@@ -917,12 +939,12 @@ ipcMain.handle('get-reports', async (event, filter) => {
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const targetDate = filter === 'yesterday' ? yesterday : today;
-    
+
     const targetBills = inMemoryData.bills.filter(bill => bill.date_iso === targetDate);
-    const targetBillItems = inMemoryData.billItems.filter(item => 
+    const targetBillItems = inMemoryData.billItems.filter(item =>
       targetBills.some(bill => bill.bill_no === item.bill_no)
     );
-    
+
     // Item-wise report
     const itemWiseReport = {};
     let itemWiseTotalQty = 0, itemWiseTotalAmount = 0;
@@ -942,7 +964,7 @@ ipcMain.handle('get-reports', async (event, filter) => {
         itemWiseTotalAmount += item.total;
       }
     });
-    
+
     // Bill-wise report (include items)
     const billWiseReport = targetBills.map(bill => {
       const items = inMemoryData.billItems.filter(item => item.bill_no === bill.bill_no);
@@ -956,7 +978,7 @@ ipcMain.handle('get-reports', async (event, filter) => {
         sgst: bill.sgst || 0
       };
     });
-    
+
     // Day-wise summary
     const dayWiseSummary = {
       date: targetDate,
@@ -966,7 +988,7 @@ ipcMain.handle('get-reports', async (event, filter) => {
       cgst: targetBills.reduce((sum, bill) => sum + (bill.cgst || 0), 0),
       sgst: targetBills.reduce((sum, bill) => sum + (bill.sgst || 0), 0)
     };
-    
+
     return {
       success: true,
       data: {
@@ -1028,8 +1050,10 @@ ipcMain.handle('pull-sync', async (event, branchId) => {
     if (!effectiveBranchId) {
       throw new Error('No branchId provided and currentBranch is not set.');
     }
+    // Ensure branchId is prefixed with 'branch_' for backend API
+    const apiBranchParam = effectiveBranchId.startsWith('branch_') ? effectiveBranchId : `branch_${effectiveBranchId}`;
     // Download Excel file for current branch from backend
-    const res = await axios.get(`${BACKEND_API_URL}/sync/download?branch=${effectiveBranchId}`, { responseType: 'arraybuffer' });
+    const res = await axios.get(`${BACKEND_API_URL}/sync/download?branch=${apiBranchParam}`, { responseType: 'arraybuffer' });
     const fileBuffer = Buffer.from(res.data);
     // Save to local branch file
     excelManager.setBranchPath(effectiveBranchId);
