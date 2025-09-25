@@ -6,6 +6,8 @@ const XLSX = require('xlsx');
 const bcrypt = require('bcrypt');
 const axios = require('axios');
 
+app.commandLine.appendSwitch('disable-gpu');
+
 // Get persistent user data directory for Excel files
 let userDataDir;
 let logFilePath;
@@ -126,6 +128,14 @@ class ExcelManager {
       // Load products
       if (workbook.Sheets['products']) {
         let allProducts = XLSX.utils.sheet_to_json(workbook.Sheets['products']);
+        // Ensure discount field is present and numeric for all products
+        allProducts.forEach(p => {
+          if (p.discount === undefined || p.discount === null || isNaN(Number(p.discount))) {
+            p.discount = 0;
+          } else {
+            p.discount = Number(p.discount);
+          }
+        });
         inMemoryData.products = allProducts.filter(p => p.branch === branchCode);
         logToFile('[DEBUG] Loaded products:', inMemoryData.products);
       }
@@ -141,22 +151,31 @@ class ExcelManager {
       } else {
         inMemoryData.categories = [];
       }
-      // Load bills (only today and yesterday)
+      // Custom day boundary: 5 am
+      function getDayBoundary(date) {
+        // Returns the date string for the 5am boundary of the given date
+        const d = new Date(date);
+        if (d.getHours() < 5) {
+          // Before 5am, treat as previous day
+          d.setDate(d.getDate() - 1);
+        }
+        d.setHours(5, 0, 0, 0);
+        return d.toISOString().split('T')[0];
+      }
+      const now = new Date();
+      const todayBoundary = getDayBoundary(now);
+      const yesterdayBoundary = getDayBoundary(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+      // Load bills (only today and yesterday by 5am boundary)
       if (workbook.Sheets['bills']) {
         const allBills = XLSX.utils.sheet_to_json(workbook.Sheets['bills']);
-        const today = new Date().toISOString().split('T')[0];
-        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        console.log('[DEBUG] All bills from Excel:', allBills);
         inMemoryData.bills = allBills.filter(bill =>
-          bill.date_iso === today || bill.date_iso === yesterday
+          bill.day_boundary === todayBoundary || bill.day_boundary === yesterdayBoundary
         );
         console.log('[DEBUG] inMemoryData.bills after filter:', inMemoryData.bills);
       }
-      // Load bill items (only for today and yesterday)
+      // Load bill items (only for today and yesterday by 5am boundary)
       if (workbook.Sheets['bill_items']) {
         const allBillItems = XLSX.utils.sheet_to_json(workbook.Sheets['bill_items']);
-        const today = new Date().toISOString().split('T')[0];
-        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         const todayBills = inMemoryData.bills.map(b => b.bill_no);
         inMemoryData.billItems = allBillItems.filter(item =>
           todayBills.includes(item.bill_no)
@@ -196,7 +215,10 @@ class ExcelManager {
       XLSX.utils.book_append_sheet(workbook, branchSheet, 'branch_details');
 
       // Save products
-      let productsToSave = inMemoryData.products;
+      let productsToSave = inMemoryData.products.map(p => ({
+        ...p,
+        discount: p.discount !== undefined && !isNaN(Number(p.discount)) ? Number(p.discount) : 0
+      }));
       // If products is empty, preserve existing products sheet
       if ((!productsToSave || productsToSave.length === 0) && fs.existsSync(this.branchFilePath)) {
         try {
@@ -288,13 +310,21 @@ class ExcelManager {
   }
 
   getNextBillNumber() {
-    const today = new Date().toISOString().split('T')[0];
-    const todayBills = inMemoryData.bills.filter(bill => bill.date_iso === today);
-
+    // Use 5am boundary for bill numbering
+    function getDayBoundary(date) {
+      const d = new Date(date);
+      if (d.getHours() < 5) {
+        d.setDate(d.getDate() - 1);
+      }
+      d.setHours(5, 0, 0, 0);
+      return d.toISOString().split('T')[0];
+    }
+    const now = new Date();
+    const todayBoundary = getDayBoundary(now);
+    const todayBills = inMemoryData.bills.filter(bill => bill.day_boundary === todayBoundary);
     if (todayBills.length === 0) {
       return 1;
     }
-
     const maxBillNo = Math.max(...todayBills.map(bill => bill.bill_no));
     return maxBillNo + 1;
   }
@@ -309,6 +339,8 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
   try {
     const printWin = new BrowserWindow({
       show: false,
+      width: 400,
+      height: 1200,
       webPreferences: { nodeIntegration: true, contextIsolation: false }
     });
     // Inline user.css for guaranteed styling
@@ -319,23 +351,37 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
     } catch (e) {
       console.error('Could not read user.css:', e);
     }
+    // Add print CSS for 80(75)x297mm size
+    const printCss = `@page { size: 80mm 297mm; margin: 0; } body { width: 80mm; min-height: 297mm; margin: 0; }`;
     const fullHtml = `<!DOCTYPE html>
     <html>
     <head>
       <meta charset='utf-8'>
       <title>Bill Print</title>
       <style>${userCss}</style>
+      <style>${printCss}</style>
     </head>
     <body>${billHtml}</body>
     </html>`;
     printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(fullHtml));
-    printWin.webContents.on('did-finish-load', async () => {
-      await printWin.webContents.print({
-        silent: true,
-        printBackground: true,
-        copies: 1
-      });
-      // setTimeout(() => { printWin.close(); }, 1000);
+    printWin.webContents.on('did-finish-load', () => {
+      try {
+        printWin.webContents.print({
+          silent: true,
+          printBackground: true,
+          copies: 1,
+          pageSize: { width: 80000, height: 297000 } // 80mm x 297mm in microns
+        }, (success, errorType) => {
+          if (success) {
+            console.log('Print job completed successfully');
+          } else {
+            console.error('Print job failed:', errorType);
+          }
+          setTimeout(() => { printWin.close(); }, 2000);
+        });
+      } catch (err) {
+        console.error('Error during print:', err);
+      }
     });
     return { success: true };
   } catch (error) {
@@ -344,8 +390,6 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
   }
 });
 
-// ...existing code...
-// --- END MOCK GOOGLE DRIVE SYNC ---
 ipcMain.handle('login', async (event, credentials) => {
   try {
     const { username, password } = credentials;
@@ -862,21 +906,38 @@ ipcMain.handle('create-bill', async (event, billData) => {
       // Reload branch data to preserve previous bills
       await excelManager.loadBranchData(currentBranch);
     }
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Use 5am boundary for bill creation
+    function getDayBoundary(date) {
+      const d = new Date(date);
+      if (d.getHours() < 5) {
+        d.setDate(d.getDate() - 1);
+      }
+      d.setHours(5, 0, 0, 0);
+      return d.toISOString().split('T')[0];
+    }
+    const now = new Date();
+    const todayBoundary = getDayBoundary(now);
+    const yesterdayBoundary = getDayBoundary(new Date(now.getTime() - 24 * 60 * 60 * 1000));
     if (!billData || (Array.isArray(billData.items) && billData.items.length === 0)) {
       console.warn('Attempt to create bill with empty items. Operation aborted.');
       return { success: false, message: 'Cannot create bill with no items.' };
     }
     // Assign bill_no: max for today + 1, or 1 if none
-    const todaysBills = inMemoryData.bills.filter(b => b.date_iso === today);
+    const todaysBills = inMemoryData.bills.filter(b => b.day_boundary === todayBoundary);
     const billNo = todaysBills.length === 0 ? 1 : Math.max(...todaysBills.map(b => b.bill_no || 0)) + 1;
+    // Apply round off if enabled
+    const globalSettings = loadGlobalSettings();
+    let billTotal = billData.total;
+    if (globalSettings && globalSettings.roundOff && typeof billTotal === 'number') {
+      billTotal = Math.round(billTotal);
+    }
     const bill = {
       ...billData,
       bill_no: billNo,
-      date_iso: today,
-      created_at_ts: new Date().toISOString(),
-      total: billData.total
+      date_iso: now.toISOString().split('T')[0],
+      created_at_ts: now.toISOString(),
+      day_boundary: todayBoundary,
+      total: billTotal
     };
     inMemoryData.bills.push(bill);
     // Add bill items
@@ -885,13 +946,14 @@ ipcMain.handle('create-bill', async (event, billData) => {
         inMemoryData.billItems.push({
           ...item,
           bill_no: billNo,
-          date_iso: today
+          date_iso: now.toISOString().split('T')[0],
+          day_boundary: todayBoundary
         });
       });
     }
     // Filter bills and billItems for today and yesterday only before saving
-    inMemoryData.bills = inMemoryData.bills.filter(b => b.date_iso === today || b.date_iso === yesterday);
-    inMemoryData.billItems = inMemoryData.billItems.filter(item => item.date_iso === today || item.date_iso === yesterday);
+    inMemoryData.bills = inMemoryData.bills.filter(b => b.day_boundary === todayBoundary || b.day_boundary === yesterdayBoundary);
+    inMemoryData.billItems = inMemoryData.billItems.filter(item => item.day_boundary === todayBoundary || item.day_boundary === yesterdayBoundary);
     console.log('Creating bill:', JSON.stringify(bill, null, 2));
     await excelManager.saveBranchData();
     return { success: true, billNo };
@@ -968,16 +1030,20 @@ ipcMain.handle('get-reports', async (event, filter) => {
     // Bill-wise report (include items)
     const billWiseReport = targetBills.map(bill => {
       const items = inMemoryData.billItems.filter(item => item.bill_no === bill.bill_no);
-      console.log(items);
       return {
         bill_no: bill.bill_no,
         total: bill.total,
         time: bill.created_at_ts,
+        billType: bill.billType || 'Takeaway',
         items: items,
         cgst: bill.cgst || 0,
         sgst: bill.sgst || 0
       };
     });
+
+    // Count Takeaway and Home Delivery bills
+    const takeawayCount = targetBills.filter(bill => bill.billType === 'Takeaway').length;
+    const homeDeliveryCount = targetBills.filter(bill => bill.billType === 'Home Delivery').length;
 
     // Day-wise summary
     const dayWiseSummary = {
@@ -986,7 +1052,9 @@ ipcMain.handle('get-reports', async (event, filter) => {
       total_qty: targetBillItems.reduce((sum, item) => sum + item.qty, 0),
       total_sales: targetBills.reduce((sum, bill) => sum + bill.total, 0),
       cgst: targetBills.reduce((sum, bill) => sum + (bill.cgst || 0), 0),
-      sgst: targetBills.reduce((sum, bill) => sum + (bill.sgst || 0), 0)
+      sgst: targetBills.reduce((sum, bill) => sum + (bill.sgst || 0), 0),
+      takeaway_count: takeawayCount,
+      home_delivery_count: homeDeliveryCount
     };
 
     return {
@@ -1055,9 +1123,26 @@ ipcMain.handle('pull-sync', async (event, branchId) => {
     // Download Excel file for current branch from backend
     const res = await axios.get(`${BACKEND_API_URL}/sync/download?branch=${apiBranchParam}`, { responseType: 'arraybuffer' });
     const fileBuffer = Buffer.from(res.data);
-    // Save to local branch file
+    // Save to local branch file, but preserve bills and bill_items
     excelManager.setBranchPath(effectiveBranchId);
-    fs.writeFileSync(excelManager.branchFilePath, fileBuffer);
+    // Read local Excel file (if exists) to preserve bills and bill_items
+    let localWorkbook = null;
+    if (fs.existsSync(excelManager.branchFilePath)) {
+      localWorkbook = XLSX.readFile(excelManager.branchFilePath);
+    }
+    // Read backend workbook from buffer
+    const backendWorkbook = XLSX.read(fileBuffer, { type: 'buffer' });
+    // Overwrite backend workbook's bills and bill_items sheets with local ones
+    if (localWorkbook) {
+      if (localWorkbook.Sheets['bills']) {
+        backendWorkbook.Sheets['bills'] = localWorkbook.Sheets['bills'];
+      }
+      if (localWorkbook.Sheets['bill_items']) {
+        backendWorkbook.Sheets['bill_items'] = localWorkbook.Sheets['bill_items'];
+      }
+    }
+    // Write merged workbook to local file
+    XLSX.writeFile(backendWorkbook, excelManager.branchFilePath);
     // Reload branch data
     await excelManager.loadBranchData(effectiveBranchId);
     // Update local database (categories, menu, offers, branch details)
@@ -1074,6 +1159,31 @@ ipcMain.handle('pull-sync', async (event, branchId) => {
     console.error('Pull sync error:', error);
     return { success: false, message: 'Sync failed: ' + error.message };
   }
+});
+
+// Global settings file (for round off, etc)
+const globalSettingsPath = path.join(userDataDir || app.getPath('userData'), 'global_settings.json');
+function loadGlobalSettings() {
+  try {
+    if (fs.existsSync(globalSettingsPath)) {
+      return JSON.parse(fs.readFileSync(globalSettingsPath, 'utf8'));
+    }
+  } catch (e) {}
+  return {};
+}
+function saveGlobalSettings(settings) {
+  try {
+    fs.writeFileSync(globalSettingsPath, JSON.stringify(settings, null, 2));
+    return true;
+  } catch (e) { return false; }
+}
+
+ipcMain.handle('get-global-settings', async () => {
+  return loadGlobalSettings();
+});
+ipcMain.handle('save-global-settings', async (event, settings) => {
+  const ok = saveGlobalSettings(settings);
+  return { success: ok };
 });
 
 // Window creation functions

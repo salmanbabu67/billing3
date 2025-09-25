@@ -33,6 +33,112 @@ async function loadBranchScopedData() {
 }
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Round Off UI logic
+    const roundOffCheckbox = document.getElementById('roundOffCheckbox');
+    const saveRoundOffBtn = document.getElementById('saveRoundOffBtn');
+    const roundOffStatus = document.getElementById('roundOffStatus');
+    // Load current round off setting
+    window.electronAPI.getGlobalSettings && window.electronAPI.getGlobalSettings().then(settings => {
+        if (settings && settings.roundOff) roundOffCheckbox.checked = true;
+    });
+    if (saveRoundOffBtn) {
+        saveRoundOffBtn.onclick = async function() {
+            const enabled = roundOffCheckbox.checked;
+            const result = await window.electronAPI.saveGlobalSettings({ roundOff: enabled });
+            if (result && result.success) {
+                roundOffStatus.textContent = 'Saved!';
+                setTimeout(() => { roundOffStatus.textContent = ''; }, 2000);
+            } else {
+                roundOffStatus.textContent = 'Failed to save.';
+            }
+        };
+    }
+    // Import Menu modal logic must be globally available before DOMContentLoaded
+});
+
+// Make import menu modal logic globally available
+window.openImportMenuModal = function() {
+    const modal = document.getElementById('importMenuModal');
+    if (!modal) return;
+    // Populate source and target branch dropdowns
+    const srcSelect = document.getElementById('importSourceBranch');
+    const tgtSelect = document.getElementById('importTargetBranch');
+    srcSelect.innerHTML = '';
+    tgtSelect.innerHTML = '';
+    allBranches.forEach(branch => {
+        const srcOpt = document.createElement('option');
+        srcOpt.value = branch.branch_code;
+        srcOpt.textContent = `${branch.branch_code} - ${branch.name}`;
+        srcSelect.appendChild(srcOpt);
+        const tgtOpt = document.createElement('option');
+        tgtOpt.value = branch.branch_code;
+        tgtOpt.textContent = `${branch.branch_code} - ${branch.name}`;
+        tgtSelect.appendChild(tgtOpt);
+    });
+    // Default: target = current, source = first other branch
+    if (selectedBranchCode) tgtSelect.value = selectedBranchCode;
+    if (allBranches.length > 1) {
+        const firstOther = allBranches.find(b => b.branch_code !== selectedBranchCode);
+        if (firstOther) srcSelect.value = firstOther.branch_code;
+    }
+    document.getElementById('importMenuStatus').textContent = '';
+    modal.style.display = 'block';
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+    // Import Menu button logic
+    const importMenuBtn = document.getElementById('importMenuBtn');
+    if (importMenuBtn) {
+        importMenuBtn.onclick = window.openImportMenuModal;
+    }
+    window.closeImportMenuModal = function() {
+        const modal = document.getElementById('importMenuModal');
+        if (modal) modal.style.display = 'none';
+    };
+    window.proceedImportMenu = async function() {
+        const src = document.getElementById('importSourceBranch').value;
+        const tgt = document.getElementById('importTargetBranch').value;
+        const overwrite = document.getElementById('importOverwrite').checked;
+        const statusDiv = document.getElementById('importMenuStatus');
+        if (!src || !tgt || src === tgt) {
+            statusDiv.textContent = 'Please select different source and target branches.';
+            return;
+        }
+        statusDiv.textContent = 'Importing...';
+        // Fetch products from source branch
+        const srcData = await window.electronAPI.getBranchData(src);
+        if (!srcData.success || !srcData.data || !Array.isArray(srcData.data.products)) {
+            statusDiv.textContent = 'Failed to load source branch menu.';
+            return;
+        }
+        let newProducts = srcData.data.products.map(p => ({ ...p, branch: tgt }));
+        if (!overwrite) {
+            // Merge: keep existing products in target branch that don't conflict by shortcut_number or name
+            const tgtData = await window.electronAPI.getBranchData(tgt);
+            if (tgtData.success && Array.isArray(tgtData.data.products)) {
+                const existing = tgtData.data.products;
+                // Only add products from source that don't exist in target by shortcut_number or name
+                newProducts = [
+                    ...existing,
+                    ...newProducts.filter(np => !existing.some(ep => ep.shortcut_number === np.shortcut_number || ep.name === np.name))
+                ];
+            }
+        }
+        // Save to target branch
+        const saveResult = await window.electronAPI.saveProductsForBranch({ branchCode: tgt, products: newProducts });
+        if (saveResult.success) {
+            statusDiv.textContent = 'Menu imported successfully!';
+            await loadAllProductsForAdmin();
+            populateProductsTable();
+            // Close modal after success
+            setTimeout(() => {
+                const modal = document.getElementById('importMenuModal');
+                if (modal) modal.style.display = 'none';
+            }, 800);
+        } else {
+            statusDiv.textContent = saveResult.message || 'Failed to import menu.';
+        }
+    };
     // Load initial data
     loadBranchData();
 
@@ -203,14 +309,15 @@ function populateBranchesTable() {
             row.querySelectorAll('td[data-field]').forEach(td => {
                 details[td.getAttribute('data-field')] = td.textContent.trim();
             });
-            window.electronAPI.saveBranchDetailsForBranch({ branchCode, details }).then(result => {
+            window.electronAPI.saveBranchDetailsForBranch({ branchCode, details }).then(async result => {
                 if (result.success) {
                     showMessage('Branch updated', 'success');
+                    // Refresh branch table and branch form
+                    await loadAllBranches();
+                    populateBranchForm();
                 } else {
                     showMessage(result.message || 'Failed to update branch', 'error');
                 }
-                // Reload table
-                loadAllBranches();
             });
         } else if (cancelBtn) {
             const row = cancelBtn.closest('tr');
@@ -340,25 +447,28 @@ function setupBranchForm() {
 
 // Load all products from all branches for admin table
 async function loadAllProductsForAdmin() {
-    products = [];
+    let loadedProducts = [];
     console.log('All branches:', allBranches); // Debug log for branches
     for (const branch of allBranches) {
         const result = await window.electronAPI.getBranchData(branch.branch_code);
         console.log(`Branch ${branch.branch_code} getBranchData result:`, result); // Detailed debug log for each branch
         if (result.success && result.data && Array.isArray(result.data.products)) {
-            products = products.concat(result.data.products);
+            loadedProducts = loadedProducts.concat(result.data.products);
         }
     }
+    products = loadedProducts;
 }
 
 function setupProductHandlers() {
     // Add product button
     window.addProduct = async function () {
-        const name = document.getElementById('productName').value.trim();
-        const category = document.getElementById('productCategory').value;
-        const branch = document.getElementById('productBranch').value;
-        const shortcut = parseInt(document.getElementById('productShortcut').value);
-        const price = parseFloat(document.getElementById('productPrice').value);
+    const name = document.getElementById('productName').value.trim();
+    const category = document.getElementById('productCategory').value;
+    const branch = document.getElementById('productBranch').value;
+    const shortcut = parseInt(document.getElementById('productShortcut').value);
+    const price = parseFloat(document.getElementById('productPrice').value);
+    const discount = parseFloat(document.getElementById('productDiscount').value) || 0;
+        const addGST = document.getElementById('productAddGST').checked;
 
         // Validate required fields (shortcut is optional)
         if (!name || !category || !branch || isNaN(price)) {
@@ -373,6 +483,7 @@ function setupProductHandlers() {
                 showMessage('Shortcut # must be an integer ≥ 1 if provided.', 'error');
                 return;
             }
+            // Only check for duplicates within the same branch
             if (products.some(p => p.branch === branch && p.shortcut_number === shortcutParsed)) {
                 showMessage('Shortcut number already exists for this branch', 'error');
                 return;
@@ -384,16 +495,36 @@ function setupProductHandlers() {
             category: category,
             branch: branch,
             price: price,
+            discount: discount,
+            add_gst: addGST,
             created_at: new Date().toISOString()
         };
+        // Only check for duplicate product_id within the same branch
+        if (products.some(p => p.branch === branch && p.product_id === newProduct.product_id)) {
+            showMessage('Product ID already exists for this branch', 'error');
+            return;
+        }
         if (shortcutValue) {
             newProduct.shortcut_number = shortcutParsed;
         }
         // Save only to the selected branch
-        let branchProducts = products.filter(p => p.branch === branch);
-        branchProducts.push(newProduct);
-        // Save to backend for selected branch
-        const result = await window.electronAPI.saveProductsForBranch({ branchCode: branch, products: branchProducts });
+        // Reload products for this branch to avoid duplicates
+        let branchProducts = products.filter(p => p.branch === branch && p.product_id !== newProduct.product_id);
+        // Add product to backend only if not duplicate
+        // De-duplicate by shortcut number and product ID before saving
+        const dedupedProducts = [];
+        const seenIds = new Set();
+        const seenShortcuts = new Set();
+        [...branchProducts, newProduct].forEach(p => {
+            const idKey = p.product_id;
+            const shortcutKey = p.shortcut_number ? String(p.shortcut_number) : '';
+            if (!seenIds.has(idKey) && (!shortcutKey || !seenShortcuts.has(shortcutKey))) {
+                dedupedProducts.push(p);
+                seenIds.add(idKey);
+                if (shortcutKey) seenShortcuts.add(shortcutKey);
+            }
+        });
+        const result = await window.electronAPI.saveProductsForBranch({ branchCode: branch, products: dedupedProducts });
         if (!result.success) {
             showMessage(result.message || 'Failed to add product', 'error');
             return;
@@ -404,10 +535,18 @@ function setupProductHandlers() {
         document.getElementById('productBranch').value = '';
         document.getElementById('productPrice').value = '';
         document.getElementById('productShortcut').value = '';
+        document.getElementById('productDiscount').value = '';
+        document.getElementById('productAddGST').checked = false;
         // Reload all products from all branches for table
-        await loadAllProductsForAdmin();
-        populateProductsTable();
-        showMessage('Product added successfully', 'success');
+    const addBtn = document.getElementById('addProductBtn');
+    if (addBtn) addBtn.disabled = true;
+    // Clear table while loading
+    const tbody = document.querySelector('#productsTable tbody');
+    if (tbody) tbody.innerHTML = '';
+    await loadAllProductsForAdmin();
+    populateProductsTable();
+    if (addBtn) addBtn.disabled = false;
+    showMessage('Product added successfully', 'success');
     };
 }
 
@@ -510,24 +649,165 @@ function populateProductsTable() {
     // Debug log: show products array before rendering
     console.log('[DEBUG] Products to display:', products);
 
-    products.forEach(product => {
+    // Filter out duplicate products only within the same branch
+    const seen = {};
+    products.filter(p => {
+        const key = p.branch + ':' + p.product_id;
+        if (seen[key]) return false;
+        seen[key] = true;
+        return true;
+    }).forEach(product => {
         const row = document.createElement('tr');
         // Find branch name from allBranches
         const branchObj = allBranches.find(b => b.branch_code === product.branch);
         const branchName = branchObj ? branchObj.name : product.branch;
+        row.setAttribute('data-branch', product.branch); // Store branch code in row
         row.innerHTML = `
-    <td>${product.name}</td>
-    <td>${product.category}</td>
+    <td contenteditable="false" data-field="name" data-id="${product.product_id}">${product.name}</td>
+    <td contenteditable="false" data-field="category" data-id="${product.product_id}">${product.category}</td>
     <td>${branchName}</td>
-    <td>${product.shortcut_number}</td>
-    <td>${product.price}</td>
+    <td contenteditable="false" data-field="shortcut_number" data-id="${product.product_id}">${product.shortcut_number || ''}</td>
+    <td contenteditable="false" data-field="price" data-id="${product.product_id}">${product.price}</td>
+    <td contenteditable="false" data-field="discount" data-id="${product.product_id}">${product.discount !== undefined ? product.discount : 0}</td>
+    <td><input type="checkbox" class="gst-checkbox" data-id="${product.product_id}" ${(product.gst || product.add_gst) ? 'checked' : ''} disabled></td>
     <td>
         <div class="action-buttons">
+            <button class="btn btn-primary btn-sm edit-btn">Edit</button>
+            <button class="btn btn-success btn-sm save-btn" style="display:none;">Save</button>
+            <button class="btn btn-secondary btn-sm cancel-btn" style="display:none;">Cancel</button>
             <button class="btn btn-sm btn-danger" onclick="deleteProduct('${product.product_id}')">Delete</button>
         </div>
     </td>
 `;
         tbody.appendChild(row);
+    });
+
+    // Add event listeners for inline editing
+    tbody.querySelectorAll('td[data-field]').forEach(cell => {
+        cell.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                cell.blur();
+            }
+        });
+    });
+
+    // Editing logic: highlight, show Save/Cancel, only save/cancel on button click
+    tbody.addEventListener('click', (e) => {
+        const editBtn = e.target.closest('.edit-btn');
+        const saveBtn = e.target.closest('.save-btn');
+        const cancelBtn = e.target.closest('.cancel-btn');
+        if (editBtn) {
+            const row = editBtn.closest('tr');
+            if (!row) return;
+            // Disable editing for all rows first
+            tbody.querySelectorAll('tr').forEach(tr => {
+                tr.classList.remove('editing');
+                tr.querySelectorAll('td[data-field]').forEach(td => {
+                    td.contentEditable = "false";
+                    td.classList.remove('edit-highlight');
+                });
+                tr.querySelectorAll('.gst-checkbox').forEach(cb => cb.disabled = true);
+                tr.querySelectorAll('.save-btn, .cancel-btn').forEach(btn => btn.style.display = 'none');
+                tr.querySelectorAll('.edit-btn').forEach(btn => btn.style.display = '');
+            });
+            // Enable editing for this row
+            row.classList.add('editing');
+            row.querySelectorAll('td[data-field]').forEach(td => {
+                td.contentEditable = "true";
+                td.classList.add('edit-highlight');
+            });
+            row.querySelector('.gst-checkbox').disabled = false;
+            row.querySelector('.save-btn').style.display = '';
+            row.querySelector('.cancel-btn').style.display = '';
+            row.querySelector('.edit-btn').style.display = 'none';
+            // Store original values for cancel
+            row._originalValues = {};
+            row.querySelectorAll('td[data-field]').forEach(td => {
+                row._originalValues[td.getAttribute('data-field')] = td.textContent;
+            });
+            // Store original GST value
+            const gstCheckbox = row.querySelector('.gst-checkbox');
+            row._originalValues['gst'] = gstCheckbox.checked;
+        } else if (saveBtn) {
+            const row = saveBtn.closest('tr');
+            if (!row) return;
+            // Save all edited fields
+            const productId = row.querySelector('td[data-field]').getAttribute('data-id');
+            const updated = {};
+            row.querySelectorAll('td[data-field]').forEach(td => {
+                let val = td.textContent.trim();
+                const field = td.getAttribute('data-field');
+                if (field === 'price' || field === 'discount') val = parseFloat(val);
+                if (field === 'shortcut_number') val = val ? parseInt(val) : undefined;
+                updated[field] = val;
+            });
+            // Save GST value
+            const gstCheckbox = row.querySelector('.gst-checkbox');
+            updated.gst = gstCheckbox.checked;
+            // Update product in products array
+            const idx = products.findIndex(p => p.product_id === productId);
+            if (idx !== -1) {
+                Object.assign(products[idx], updated);
+                selectedBranchCode = products[idx].branch;
+            }
+            // Save all products for the branch after editing
+            const branchCode = row.getAttribute('data-branch');
+            let branchProducts = products.filter(p => p.branch === branchCode);
+            // Replace the product in branchProducts with the edited one
+            const prodIdx = branchProducts.findIndex(p => p.product_id === productId);
+            if (prodIdx !== -1) {
+                branchProducts[prodIdx] = { ...branchProducts[prodIdx], ...updated };
+            }
+            // De-duplicate by shortcut number and product ID before saving
+            const dedupedProducts = [];
+            const seenIds = new Set();
+            const seenShortcuts = new Set();
+            branchProducts.forEach(p => {
+                const idKey = p.product_id;
+                const shortcutKey = p.shortcut_number ? String(p.shortcut_number) : '';
+                if (!seenIds.has(idKey) && (!shortcutKey || !seenShortcuts.has(shortcutKey))) {
+                    dedupedProducts.push(p);
+                    seenIds.add(idKey);
+                    if (shortcutKey) seenShortcuts.add(shortcutKey);
+                }
+            });
+            console.log('[DEBUG] Saving products for branch', branchCode, dedupedProducts);
+            window.electronAPI.saveProductsForBranch({ branchCode, products: dedupedProducts }).then(result => {
+                if (!result.success) {
+                    showMessage(result.message || 'Failed to save products', 'error');
+                } else {
+                    showMessage('Product updated', 'success');
+                }
+                // Always reload all products for all branches and refresh table
+                loadAllProductsForAdmin().then(() => {
+                    populateProductsTable();
+                });
+            });
+        } else if (cancelBtn) {
+            const row = cancelBtn.closest('tr');
+            if (!row) return;
+            // Restore original values
+            if (row._originalValues) {
+                row.querySelectorAll('td[data-field]').forEach(td => {
+                    const field = td.getAttribute('data-field');
+                    td.textContent = row._originalValues[field];
+                });
+                // Restore GST value
+                const gstCheckbox = row.querySelector('.gst-checkbox');
+                gstCheckbox.checked = row._originalValues['gst'];
+                gstCheckbox.disabled = true;
+            }
+            // Reset editing state
+            row.classList.remove('editing');
+            row.querySelectorAll('td[data-field]').forEach(td => {
+                td.contentEditable = "false";
+                td.classList.remove('edit-highlight');
+            });
+            row.querySelector('.save-btn').style.display = 'none';
+            row.querySelector('.cancel-btn').style.display = 'none';
+            row.querySelector('.edit-btn').style.display = '';
+        }
     });
 }
 
@@ -798,8 +1078,9 @@ function filterProductsByBranch() {
     <td>${product.name}</td>
     <td>${product.category}</td>
     <td>${branchName}</td>
-    <td>${product.shortcut_number}</td>
+    <td>${product.shortcut_number || ''}</td>
     <td>${product.price}</td>
+    <td>${product.discount !== undefined ? product.discount : 0}</td>
     <td>
         <div class="action-buttons">
             <button class="btn btn-sm btn-danger" onclick="deleteProduct('${product.product_id}')">Delete</button>

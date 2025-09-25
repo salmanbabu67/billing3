@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Global settings
+  getGlobalSettings: () => ipcRenderer.invoke('get-global-settings'),
+  saveGlobalSettings: (settings) => ipcRenderer.invoke('save-global-settings', settings),
   printBillHtml: (billHtml) => ipcRenderer.invoke('print-bill-html', billHtml),
   // Authentication
   login: (credentials) => ipcRenderer.invoke('login', credentials),

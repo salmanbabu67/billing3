@@ -13,6 +13,14 @@ let shortcutTimeout = null;
 let currentBillNo = null;
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Add takeaway/home delivery radio buttons to bill screen
+    const billTypeContainer = document.getElementById('billTypeContainer');
+    if (billTypeContainer) {
+        billTypeContainer.innerHTML = `
+            <label><input type="radio" name="billType" value="Takeaway" checked> Takeaway</label>
+            <label style="margin-left:20px;"><input type="radio" name="billType" value="Home Delivery"> Home Delivery</label>
+        `;
+    }
     // Global shortcut buffer for numeric keys
     document.addEventListener('keydown', function(e) {
         // Debug: log every keydown event and focus state
@@ -341,7 +349,6 @@ function addBySearch() {
 
 function addProductToBill(product) {
     const existingItem = currentBill.items.find(item => item.product_id === product.product_id);
-
     if (existingItem) {
         existingItem.qty += 1;
     } else {
@@ -350,10 +357,11 @@ function addProductToBill(product) {
             name: product.name,
             price: product.price,
             qty: 1,
-            total: product.price
+            total: product.price,
+            discount: product.discount || 0,
+            add_gst: product.add_gst || false
         });
     }
-
     updateBillDisplay();
     showMessage(`${product.name} added to bill`, 'success');
 }
@@ -377,34 +385,50 @@ function updateBillDisplay() {
         return;
     }
 
-    // Calculate subtotal
-    const subtotal = currentBill.items.reduce((sum, item) => sum + (item.price * item.qty), 0);
-
-    // Always get offers from the current branchData
-    let discount = 0;
-    let discountLabel = '';
+    // Calculate subtotal and apply per-product discount silently
+    let subtotal = 0;
+    let gstSubtotal = 0;
+    let productDiscountTotal = 0;
+    currentBill.items.forEach(item => {
+        let itemTotal = item.price * item.qty;
+        if (item.discount && !isNaN(item.discount)) {
+            itemTotal -= itemTotal * (item.discount / 100);
+            productDiscountTotal += (item.price * item.qty) * (item.discount / 100);
+        }
+        subtotal += itemTotal;
+        if (item.add_gst) {
+            gstSubtotal += itemTotal;
+        }
+    });
+    // Apply branch offer discount (displayed in bill summary)
     let branchOffers = branchData && branchData.offers ? branchData.offers : [];
+    let branchDiscount = 0;
+    let discountLabel = '';
     if (branchOffers.length > 0) {
-        // Apply first offer with a 'discount' field
         const activeOffer = branchOffers.find(o => o.discount);
         if (activeOffer) {
-            discount = subtotal * (activeOffer.discount / 100);
+            branchDiscount = subtotal * (activeOffer.discount / 100);
             discountLabel = `${activeOffer.discount}% ${activeOffer.name || 'Discount'}`;
         }
     }
-    const discountedSubtotal = subtotal - discount;
+    const discountedSubtotal = subtotal - branchDiscount;
 
-    // GST calculation
-    const sgst = discountedSubtotal * 0.025;
-    const cgst = discountedSubtotal * 0.025;
-    const grandTotal = discountedSubtotal + sgst + cgst;
+    // GST calculation only for GST items
+    const sgst = gstSubtotal * 0.025;
+    const cgst = gstSubtotal * 0.025;
+    const grandTotal = discountedSubtotal; // Do NOT add GST to total
 
     // Update display
-    billItemsContainer.innerHTML = currentBill.items.map((item, index) => `
+    billItemsContainer.innerHTML = currentBill.items.map((item, index) => {
+        let itemTotal = item.price * item.qty;
+        if (item.discount && !isNaN(item.discount)) {
+            itemTotal -= itemTotal * (item.discount / 100);
+        }
+        return `
         <div class="bill-item">
             <div class="bill-item-info">
                 <div class="bill-item-name">${item.name}</div>
-<div class="qty-control">
+                <div class="qty-control">
                     <button class="qty-btn" onclick="updateItemQty(${index}, -1)">-</button>
                     <input type="number" class="qty-input" value="${item.qty}" min="1" onchange="setItemQty(${index}, this.value)">
                     <button class="qty-btn" onclick="updateItemQty(${index}, 1)">+</button>
@@ -412,14 +436,38 @@ function updateBillDisplay() {
             </div>
             <div class="bill-item-controls">
                 <div style="min-width: 80px; text-align: right; margin: 0 10px;">
-                    ₹${(item.price * item.qty).toFixed(2)}
+                    ₹${itemTotal.toFixed(2)}
                 </div>
                 <button class="remove-btn" onclick="removeItem(${index})">Remove</button>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 
-    billTotalElement.textContent = `₹${grandTotal.toFixed(2)}`;
+    // Apply round off if enabled (sync for UI, async for backend)
+    let setBillTotal = (total) => {
+        billTotalElement.textContent = `₹${total}`;
+    };
+    let didSet = false;
+    if (window.electronAPI && window.electronAPI.getGlobalSettings) {
+        try {
+            let globalSettingsPromise = window.electronAPI.getGlobalSettings();
+            if (globalSettingsPromise instanceof Promise) {
+                globalSettingsPromise.then(settings => {
+                    if (settings && settings.roundOff) {
+                        setBillTotal(Math.round(grandTotal));
+                    } else {
+                        setBillTotal(grandTotal.toFixed(2));
+                    }
+                });
+                didSet = true;
+            } else if (globalSettingsPromise && globalSettingsPromise.roundOff) {
+                setBillTotal(Math.round(grandTotal));
+                didSet = true;
+            }
+        } catch (e) {}
+    }
+    if (!didSet) setBillTotal(grandTotal.toFixed(2));
     const printBtn = document.getElementById('printBtn');
     if (printBtn) printBtn.disabled = false;
 
@@ -432,12 +480,13 @@ function updateBillDisplay() {
             summary.className = 'bill-summary';
             billFooter.appendChild(summary);
         }
-        summary.innerHTML = `
-            <div style="display: flex; justify-content: space-between;"><div>Subtotal:</div> <div>₹${subtotal.toFixed(2)}</div></div>
-            <div style="display: flex; justify-content: space-between;"><div>Discount:</div> <div>-₹${discount.toFixed(2)} ${discountLabel ? '(' + discountLabel + ')' : ''}</div></div>
-            <div style="display: flex; justify-content: space-between;"><div>SGST (2.5%):</div> <div>₹${sgst.toFixed(2)}</div></div>
-            <div style="display: flex; justify-content: space-between;"><div>CGST (2.5%):</div> <div>₹${cgst.toFixed(2)}</div></div>
-        `;
+        let summaryHtml = `<div style="display: flex; justify-content: space-between;"><div>Subtotal:</div> <div>₹${subtotal.toFixed(2)}</div></div>`;
+        if (branchDiscount > 0.001) {
+            summaryHtml += `<div style="display: flex; justify-content: space-between;"><div>Discount:</div> <div>-₹${branchDiscount.toFixed(2)}${discountLabel ? ' (' + discountLabel + ')' : ''}</div></div>`;
+        }
+    summaryHtml += `<div style="display: flex; justify-content: space-between;"><div>SGST (2.5%) (GST items only):</div> <div>₹${sgst.toFixed(2)}</div></div>`;
+    summaryHtml += `<div style="display: flex; justify-content: space-between;"><div>CGST (2.5%) (GST items only):</div> <div>₹${cgst.toFixed(2)}</div></div>`;
+        summary.innerHTML = summaryHtml;
     }
 }
 
@@ -477,11 +526,31 @@ async function generateBill() {
             }
         }
         const discountedSubtotal = subtotal - discount;
-        const sgst = discountedSubtotal * 0.025;
-        const cgst = discountedSubtotal * 0.025;
-        const grandTotal = discountedSubtotal + sgst + cgst;
+        // GST calculation only for GST items
+        let gstSubtotal = 0;
+        currentBill.items.forEach(item => {
+            if (item.add_gst) {
+                gstSubtotal += item.price * item.qty;
+            }
+        });
+        const sgst = gstSubtotal * 0.025;
+        const cgst = gstSubtotal * 0.025;
+        let grandTotal = discountedSubtotal; // Do NOT add GST to total
+
+        // Apply round off if enabled
+        let globalSettings = null;
+        try {
+            globalSettings = await window.electronAPI.getGlobalSettings();
+        } catch (e) {}
+        if (globalSettings && globalSettings.roundOff) {
+            grandTotal = Math.round(grandTotal);
+        }
 
         const now = new Date();
+        // Get selected bill type
+        let billType = 'Takeaway';
+        const billTypeRadio = document.querySelector('input[name="billType"]:checked');
+        if (billTypeRadio) billType = billTypeRadio.value;
         // Prepare billData without bill_no (backend assigns it)
         const billData = {
             date_iso: now.toISOString().split('T')[0],
@@ -496,6 +565,7 @@ async function generateBill() {
             total: grandTotal,
             sgst,
             cgst,
+            billType,
             branchDetails: branchData?.branchDetails || branchData?.branch_details || {}
         };
 
@@ -507,9 +577,43 @@ async function generateBill() {
         currentBillNo = result.billNo;
         document.getElementById('currentBillNo').textContent = currentBillNo;
         showMessage(`Bill #${currentBillNo} generated successfully`, 'success');
-        // Add bill_no to billData for modal display
+        // Directly print the bill instead of showing modal
         const billDataWithNo = { ...billData, bill_no: result.billNo };
-        showBillModal(result.billNo, billDataWithNo);
+        const billHtml = getBillHtml(billDataWithNo);
+        if (billType === 'Home Delivery') {
+            // Print first copy
+            await window.electronAPI.printBillHtml(billHtml).then(result => {
+                if (result.success) {
+                    showMessage('Bill printed successfully', 'success');
+                } else {
+                    showMessage(result.message || 'Print failed', 'error');
+                }
+            }).catch(() => {
+                showMessage('Print failed', 'error');
+            });
+            // Print second copy with DUPLICATE watermark
+            const duplicateHtml = `<div style='position:absolute;top:40%;left:0;width:100%;text-align:center;font-size:2.5rem;color:#e00;opacity:0.25;z-index:999;'>DUPLICATE</div>` + billHtml;
+            await window.electronAPI.printBillHtml(duplicateHtml).then(result => {
+                if (result.success) {
+                    showMessage('Duplicate bill printed', 'success');
+                } else {
+                    showMessage(result.message || 'Duplicate print failed', 'error');
+                }
+            }).catch(() => {
+                showMessage('Duplicate print failed', 'error');
+            });
+        } else {
+            // Only one copy for Takeaway
+            await window.electronAPI.printBillHtml(billHtml).then(result => {
+                if (result.success) {
+                    showMessage('Bill printed successfully', 'success');
+                } else {
+                    showMessage(result.message || 'Print failed', 'error');
+                }
+            }).catch(() => {
+                showMessage('Print failed', 'error');
+            });
+        }
         // Clear bill section after generation
         currentBill = { items: [], total: 0 };
         updateBillDisplay();
@@ -524,57 +628,6 @@ async function generateBill() {
 async function printBill() {
     // Printing is now only allowed from the bill modal, not directly from bill-section
     showMessage('Please use the Print button in the bill modal after generating the bill.', 'info');
-}
-
-// Move showBillModal and helpers to top-level so generateBill can call them
-function showBillModal(billNo, billData) {
-    // Create and show a modal with bill details and a Print button
-    let modal = document.getElementById('billModal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'billModal';
-        modal.className = 'custom-modal';
-        modal.innerHTML = `
-        <div class="custom-modal-content" style="max-width:800px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-                <h2 style="font-size:1.3rem;font-weight:700;color:#222;">Bill #${billNo}</h2>
-                <button onclick="closeBillModal()" style="background:none;border:none;font-size:2rem;line-height:1;cursor:pointer;color:#888;">&times;</button>
-            </div>
-            <div id="billModalContent">
-                ${getBillHtml(billData)}
-            </div>
-            <div style="margin-top:1.5rem;text-align:right;">
-                <button id="printBillModalBtn" class="btn btn-success">Print</button>
-            </div>
-        </div>
-    `;
-        document.body.appendChild(modal);
-    } else {
-        modal.querySelector('#billModalContent').innerHTML = getBillHtml(billData);
-        modal.querySelector('h2').textContent = `Bill #${billNo}`;
-        modal.classList.remove('hidden');
-    }
-    modal.classList.remove('hidden');
-    // Only allow printing once
-    const printBtn = modal.querySelector('#printBillModalBtn');
-    if (printBtn) {
-        printBtn.disabled = false;
-        printBtn.onclick = function () {
-            printBtn.disabled = true;
-            const billHtml = getBillHtml(billData);
-            window.electronAPI.printBillHtml(billHtml).then(result => {
-                if (result.success) {
-                    showMessage('Bill printed successfully', 'success');
-                } else {
-                    showMessage(result.message || 'Print failed', 'error');
-                }
-                closeBillModal();
-            }).catch(() => {
-                showMessage('Print failed', 'error');
-                closeBillModal();
-            });
-        };
-    }
 }
 
 function closeBillModal() {
@@ -592,19 +645,30 @@ function closeBillModal() {
 function getBillHtml(billData) {
     console.log(billData);
     const branch = billData.branchDetails || {};
-    // Calculate subtotal, discount, taxes, and grand total for accurate display
-    const subtotal = billData.items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    // Calculate subtotal, per-product discount, taxes, and grand total for accurate display
+    let subtotal = 0;
     let discount = 0;
+    let gstSubtotal = 0;
+    billData.items.forEach(item => {
+        subtotal += item.price * item.qty;
+        if (item.discount && !isNaN(item.discount)) {
+            discount += (item.price * item.qty) * (item.discount / 100);
+        }
+        if (item.add_gst) {
+            gstSubtotal += item.price * item.qty;
+        }
+    });
+    // Apply offer discount if any (on top of per-product discount)
     if (branchData && branchData.offers && branchData.offers.length > 0) {
         const activeOffer = branchData.offers.find(o => o.discount);
         if (activeOffer) {
-            discount = subtotal * (activeOffer.discount / 100);
+            discount += (subtotal - discount) * (activeOffer.discount / 100);
         }
     }
     const discountedSubtotal = subtotal - discount;
-    const sgst = billData.sgst !== undefined ? billData.sgst : discountedSubtotal * 0.025;
-    const cgst = billData.cgst !== undefined ? billData.cgst : discountedSubtotal * 0.025;
-    const grandTotal = discountedSubtotal + sgst + cgst;
+    const sgst = billData.sgst !== undefined ? billData.sgst : gstSubtotal * 0.025;
+    const cgst = billData.cgst !== undefined ? billData.cgst : gstSubtotal * 0.025;
+    const grandTotal = discountedSubtotal; // Do NOT add GST to total
 
     let html = `<div class="bill-modal">
         <div class="branch-details">${branch.name || ''}</div>
@@ -613,7 +677,7 @@ function getBillHtml(billData) {
             ${branch.phone || ''}${branch.phone && branch.gst ? ' - ' : ''}${branch.gst || ''}<br>
             GST NO ${branch.gst || ''}<br>
             FSSAI NO ${branch.fssai || ''}<br>
-            <span style="font-weight:bold;">DINE-IN</span>
+            <span style="font-weight:bold;">${billData.billType || 'Takeaway'}</span>
         </div>
         <div class="bill-meta">
             <div>BILL NO: ${billData.bill_no || ''}</div>
@@ -629,12 +693,12 @@ function getBillHtml(billData) {
         <div class="bill-summary">
             <div>Total Item(s): ${billData.items.length}</div>
             <div>QTY: ${billData.items.reduce((sum, item) => sum + item.qty, 0).toFixed(3)}</div>
-            <div>Discount: -₹${discount.toFixed(2)}</div>
+            ${discount > 0.001 ? `<div>Discount: -₹${discount.toFixed(2)}</div>` : ''}
         </div>
-        <div class="bill-taxes"> <div>CGST @ 2.50%</div>  <div>₹${cgst.toFixed(2)}</div></div>
-        <div class="bill-taxes"> <div>SGST @ 2.50%</div>  <div>₹${sgst.toFixed(2)}</div></div>
-        <div class="bill-total"><div>Total</div> <div>₹ ${grandTotal.toFixed(2)}</div></div>
-        <div class="bill-footer">GST ADDED OF ALL TAXES<br><span>THANK YOU VISIT AGAIN</span></div>
+    <div class="bill-taxes"> <div>CGST @ 2.50% (GST items only)</div>  <div>₹${cgst.toFixed(2)}</div></div>
+    <div class="bill-taxes"> <div>SGST @ 2.50% (GST items only)</div>  <div>₹${sgst.toFixed(2)}</div></div>
+    <div class="bill-total"><div>Total</div> <div>₹ ${grandTotal.toFixed(2)}</div></div>
+        <div class="bill-footer">GST ADDED OF ALL TAXES<br><span>THANK YOU VISIT AGAIN</span><br><span>For Feedback & Suggestions 9940912222</span></div>
     </div>`;
     return html;
 }
@@ -668,9 +732,9 @@ function filterProductsByCategory(category) {
             <div class="product-name">${product.name}</div>
             <div class="product-price">₹${product.price.toFixed(2)}</div>
             <div class="product-controls">
-                <button class="qty-btn" onclick="addProductToBillById('${product.product_id}')">+</button>
-                <span class="qty-counter" id="qty-counter-${product.product_id}">${qty}</span>
                 <button class="qty-btn" onclick="removeProductFromBillById('${product.product_id}')">-</button>
+                <span class="qty-counter" id="qty-counter-${product.product_id}">${qty}</span>
+                <button class="qty-btn" onclick="addProductToBillById('${product.product_id}')">+</button>
             </div>
         `;
         productsGrid.appendChild(productCard);
@@ -789,16 +853,21 @@ function populateBillWiseReport(data, branchDetails) {
     const tbody = document.querySelector('#billwiseTable tbody');
     tbody.innerHTML = '';
 
+    // Update table header to include Order Type
+    const table = document.getElementById('billwiseTable');
+    if (table) {
+        table.querySelector('thead').innerHTML = `<tr><th>Bill No</th><th>Order Type</th><th>Total</th><th>Date/Time</th></tr>`;
+    }
     data.forEach(bill => {
         const row = document.createElement('tr');
         row.innerHTML = `
             <td>${bill.bill_no}</td>
+            <td>${bill.billType || 'Takeaway'}</td>
             <td>₹${bill.total.toFixed(2)}</td>
             <td>${new Date(bill.time).toLocaleString()}</td>
         `;
         tbody.appendChild(row);
     });
-
     // Update header
     const header = document.getElementById('billwiseHeader');
     header.innerHTML = `
@@ -816,12 +885,19 @@ function populateDaySummaryReport(data, branchDetails) {
     const tbody = document.querySelector('#daysummaryTable tbody');
     tbody.innerHTML = '';
 
+    // Update table header to include Takeaway/Home Delivery counts
+    const table = document.getElementById('daysummaryTable');
+    if (table) {
+        table.querySelector('thead').innerHTML = `<tr><th>Date</th><th>Total Bills</th><th>Total Qty</th><th>Total Sales</th><th>Takeaway</th><th>Home Delivery</th></tr>`;
+    }
     const row = document.createElement('tr');
     row.innerHTML = `
         <td>${data.date}</td>
         <td>${data.total_bills}</td>
         <td>${data.total_qty}</td>
         <td>₹${data.total_sales.toFixed(2)}</td>
+        <td>${data.takeaway_count || 0}</td>
+        <td>${data.home_delivery_count || 0}</td>
     `;
     tbody.appendChild(row);
 
@@ -930,32 +1006,29 @@ function loadModalTabContent(tab) {
             html += getReportFooter();
         } else if (tab === 'billwise') {
             html += getReportHeader('Bill-wise Sale Report');
-            html += `<table class="report-table"><thead><tr><th>Bill No</th><th>Items</th><th>Tax</th><th>Amount</th></tr></thead><tbody>`;
+            html += `<table class="report-table"><thead><tr><th>Bill No</th><th>Order Type</th><th>Items</th><th>Tax</th><th>Amount</th></tr></thead><tbody>`;
             let totalAmount = 0, totalTax = 0, totalItems = 0;
             result.data.billWise.forEach(row => {
                 // Find bill details from bills array if available
                 const bill = (result.data.bills || []).find(b => b.bill_no === row.bill_no) || row;
                 const items = bill.items ? bill.items.length : (bill.total_items || 0);
                 const tax = (bill.cgst || 0) + (bill.sgst || 0);
-                html += `<tr><td>${row.bill_no}</td><td>${items}</td><td>₹${tax.toFixed(2)}</td><td>₹${row.total.toFixed(2)}</td></tr>`;
+                const billType = bill.billType || 'Takeaway';
+                html += `<tr><td>${row.bill_no}</td><td>${billType}</td><td>${items}</td><td>₹${tax.toFixed(2)}</td><td>₹${row.total.toFixed(2)}</td></tr>`;
                 totalAmount += row.total;
                 totalTax += tax;
                 totalItems += items;
             });
             // Add total row
-            html += `<tr style='font-weight:bold;background:#f5f5f5;'><td>Total</td><td>${totalItems}</td><td>₹${totalTax.toFixed(2)}</td><td>₹${totalAmount.toFixed(2)}</td></tr>`;
+            html += `<tr style='font-weight:bold;background:#f5f5f5;'><td colspan='2'>Total</td><td>${totalItems}</td><td>₹${totalTax.toFixed(2)}</td><td>₹${totalAmount.toFixed(2)}</td></tr>`;
             html += `</tbody></table>`;
             html += getReportFooter();
         } else if (tab === 'daywise') {
             html += getReportHeader('Day-wise Sale Summary');
-            // Calculate total tax (CGST + SGST) for all bills
-            const bills = result.data.billWise || [];
-            let totalTax = 0;
-            bills.forEach(bill => {
-                totalTax += (bill.cgst || 0) + (bill.sgst || 0);
-            });
-            html += `<table class="report-table"><thead><tr><th>Date</th><th>Total Bills</th><th>Total Tax</th><th>Total Amount</th></tr></thead><tbody>`;
-            html += `<tr><td>${result.data.dayWise.date}</td><td>${result.data.dayWise.total_bills}</td><td>₹${totalTax.toFixed(2)}</td><td>₹${result.data.dayWise.total_sales.toFixed(2)}</td></tr>`;
+            // Show Takeaway/Home Delivery counts if available
+            const day = result.data.dayWise || {};
+            html += `<table class="report-table"><thead><tr><th>Date</th><th>Total Bills</th><th>Total Qty</th><th>Total Sales</th><th>Takeaway</th><th>Home Delivery</th></tr></thead><tbody>`;
+            html += `<tr><td>${day.date}</td><td>${day.total_bills}</td><td>${day.total_qty || ''}</td><td>₹${day.total_sales?.toFixed(2) || ''}</td><td>${day.takeaway_count || 0}</td><td>${day.home_delivery_count || 0}</td></tr>`;
             html += `</tbody></table>`;
             html += getReportFooter();
         } else if (tab === 'bills') {

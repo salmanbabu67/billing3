@@ -25,7 +25,6 @@
         <!-- Branch Details Tab -->
         <div id="branch-tab" class="tab-content active">
             <h2>Branch Management</h2>
-            
             <!-- Add New Branch Form -->
             <div style="background: #f8f9fa; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem;">
                 <h3>Add New Branch</h3>
@@ -74,7 +73,8 @@
                     </div>
                     <div class="form-group">
                         <label for="billAddress">Bill Address:</label>
-                        <textarea id="billAddress" name="billAddress" rows="3" placeholder="Enter bill address"></textarea>
+                        <textarea id="billAddress" name="billAddress" rows="3"
+                            placeholder="Enter bill address"></textarea>
                     </div>
                     <div class="form-group">
                         <label for="email">Email:</label>
@@ -88,6 +88,11 @@
             <!-- Existing Branches Table -->
             <div class="branch-table-container">
                 <h3>Existing Branches</h3>
+                <div style="margin-top:1rem;margin-bottom: 1rem;">
+                    <label><input type="checkbox" id="roundOffCheckbox"> Enable Round Off (all branches)</label>
+                    <button class="btn btn-secondary" id="saveRoundOffBtn">Save</button>
+                    <span id="roundOffStatus" style="margin-left:1rem;color:#388e3c;"></span>
+                </div>
                 <div class="table-container">
                     <table id="branchesTable" style="min-width:1400px; width:1400px; border:1px solid #ccc;">
                         <thead>
@@ -111,8 +116,40 @@
 
         <!-- Products Tab -->
         <div id="products-tab" class="tab-content">
-            <h2>Products Management</h2>
-            <div class="row">
+            <div style="display:flex; flex-direction: row; justify-content: space-between;align-content: center;">
+                <h2>Products Management</h2>
+                <button class="btn btn-info" id="importMenuBtn" style="margin-bottom:1rem;">Import Menu from Another
+                    Branch</button>
+            </div>
+            <!-- Import Menu Modal -->
+            <div id="importMenuModal" class="modal" style="display:none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Import Menu from Another Branch</h3>
+                        <span class="close" onclick="closeImportMenuModal()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="importSourceBranch">Source Branch:</label>
+                            <select id="importSourceBranch"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="importTargetBranch">Target Branch:</label>
+                            <select id="importTargetBranch"></select>
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="importOverwrite" checked style="margin:0;width:5%">
+                            <label for="importOverwrite" style="margin:0;">Overwrite target branch menu</label>
+                        </div>
+                        <div id="importMenuStatus" style="color:#d32f2f;margin-bottom:1rem;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeImportMenuModal()">Cancel</button>
+                        <button class="btn btn-success" onclick="proceedImportMenu()">Import</button>
+                    </div>
+                </div>
+            </div>
+            <div class="row" style="margin-bottom: 0%;">
                 <div class="col-2">
                     <div class="form-group">
                         <label for="productName">Item Name:</label>
@@ -126,7 +163,8 @@
                             <select id="productCategory" style="flex: 1;">
                                 <option value="">Select Category</option>
                             </select>
-                            <button type="button" class="btn btn-secondary" onclick="openCategoryModal()" style="padding: 0.5rem;">+</button>
+                            <button type="button" class="btn btn-secondary" onclick="openCategoryModal()"
+                                style="padding: 0.5rem;">+</button>
                         </div>
                     </div>
                 </div>
@@ -142,7 +180,6 @@
                     <div class="form-group">
                         <label for="productShortcut">Shortcut #:</label>
                         <input type="number" id="productShortcut" placeholder="1" min="1" required>
-                        <small style="color:#d32f2f;display:block;margin-top:4px;">Must be a unique integer ≥ 1 for each product.</small>
                     </div>
                 </div>
                 <div class="col">
@@ -151,9 +188,19 @@
                         <input type="number" id="productPrice" step="0.01" placeholder="0.00">
                     </div>
                 </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="productDiscount">Discount %:</label>
+                        <input type="number" id="productDiscount" step="0.01" placeholder="0.00" min="0" max="100">
+                    </div>
+                </div>
             </div>
+             <div class="form-group" style="display: flex;width: 20%;align-items: center;gap: 1rem;">
+                        <input type="checkbox" id="productAddGST" style="width: 15%;">
+                        <label for="productAddGST" style="margin: 0;">Add GST</label>
+                    </div>
             <button class="btn btn-success" onclick="addProduct()">Add Product</button>
-            
+
             <!-- Filter Section -->
             <div class="filter-container">
                 <div class="filter-group">
@@ -165,7 +212,7 @@
                 <div class="filter-group">
                 </div>
             </div>
-            
+
             <div class="table-container">
                 <table id="productsTable">
                     <thead>
@@ -175,10 +222,12 @@
                             <th>Branch</th>
                             <th>Shortcut #</th>
                             <th>Price</th>
+                            <th>Discount %</th>
+                            <th>GST</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
-                        <tbody id="branchesTableBody"></tbody>
+                    <tbody id="branchesTableBody"></tbody>
                 </table>
             </div>
         </div>
@@ -201,7 +250,7 @@
                 </div>
             </div>
             <button class="btn btn-success" onclick="addOffer()">Add Offer</button>
-            
+
             <div class="table-container">
                 <table id="offersTable">
                     <thead>
@@ -221,7 +270,8 @@
             <h2>Data Synchronization</h2>
             <div class="sync-section">
                 <h3>Push Updates to Google Drive</h3>
-                <p>Upload current branch data (products, offers, branch details) to Google Drive for other devices to download.</p>
+                <p>Upload current branch data (products, offers, branch details) to Google Drive for other devices to
+                    download.</p>
                 <button class="btn btn-success" onclick="pushSync()">Push Sync</button>
             </div>
 
@@ -235,27 +285,28 @@
             </div>
 
             <div class="message info">
-                <strong>Note:</strong> Google Drive API integration is required. Please configure your Google Drive credentials in the main process.
+                <strong>Note:</strong> Google Drive API integration is required. Please configure your Google Drive
+                credentials in the main process.
             </div>
         </div>
 
         <div id="message"></div>
-    <!-- Confirmation Modal -->
-    <div id="confirmModal" class="modal" style="display:none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="confirmModalTitle">Confirm Action</h3>
-                <span class="close" onclick="closeConfirmModal()">&times;</span>
-            </div>
-            <div class="modal-body">
-                <p id="confirmModalText"></p>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
-                <button class="btn btn-danger" id="confirmModalYes">Yes</button>
+        <!-- Confirmation Modal -->
+        <div id="confirmModal" class="modal" style="display:none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="confirmModalTitle">Confirm Action</h3>
+                    <span class="close" onclick="closeConfirmModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p id="confirmModalText"></p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+                    <button class="btn btn-danger" id="confirmModalYes">Yes</button>
+                </div>
             </div>
         </div>
-    </div>
     </div>
 
     <!-- Category Modal -->
@@ -281,4 +332,5 @@
     <script src="renderer/common.js"></script>
     <script src="renderer/admin.js"></script>
 </body>
+
 </html>
