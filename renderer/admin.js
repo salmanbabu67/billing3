@@ -462,12 +462,12 @@ async function loadAllProductsForAdmin() {
 function setupProductHandlers() {
     // Add product button
     window.addProduct = async function () {
-    const name = document.getElementById('productName').value.trim();
-    const category = document.getElementById('productCategory').value;
-    const branch = document.getElementById('productBranch').value;
-    const shortcut = parseInt(document.getElementById('productShortcut').value);
-    const price = parseFloat(document.getElementById('productPrice').value);
-    const discount = parseFloat(document.getElementById('productDiscount').value) || 0;
+        const name = document.getElementById('productName').value.trim();
+        const category = document.getElementById('productCategory').value;
+        const branch = document.getElementById('productBranch').value;
+        const shortcut = parseInt(document.getElementById('productShortcut').value);
+        const price = parseFloat(document.getElementById('productPrice').value);
+        const discount = parseFloat(document.getElementById('productDiscount').value) || 0;
         const addGST = document.getElementById('productAddGST').checked;
 
         // Validate required fields (shortcut is optional)
@@ -524,9 +524,15 @@ function setupProductHandlers() {
                 if (shortcutKey) seenShortcuts.add(shortcutKey);
             }
         });
+        const addBtn = document.getElementById('addProductBtn');
+        if (addBtn) addBtn.disabled = true;
+        // Show loading indicator
+        const tbody = document.querySelector('#productsTable tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Loading products...</td></tr>';
         const result = await window.electronAPI.saveProductsForBranch({ branchCode: branch, products: dedupedProducts });
         if (!result.success) {
             showMessage(result.message || 'Failed to add product', 'error');
+            if (addBtn) addBtn.disabled = false;
             return;
         }
         // Clear form
@@ -537,16 +543,11 @@ function setupProductHandlers() {
         document.getElementById('productShortcut').value = '';
         document.getElementById('productDiscount').value = '';
         document.getElementById('productAddGST').checked = false;
-        // Reload all products from all branches for table
-    const addBtn = document.getElementById('addProductBtn');
-    if (addBtn) addBtn.disabled = true;
-    // Clear table while loading
-    const tbody = document.querySelector('#productsTable tbody');
-    if (tbody) tbody.innerHTML = '';
-    await loadAllProductsForAdmin();
-    populateProductsTable();
-    if (addBtn) addBtn.disabled = false;
-    showMessage('Product added successfully', 'success');
+        // Only repopulate table after products are fetched
+        await loadAllProductsForAdmin();
+        populateProductsTable();
+        if (addBtn) addBtn.disabled = false;
+        showMessage('Product added successfully', 'success');
     };
 }
 
@@ -997,9 +998,11 @@ function addCategory() {
     const unique = Array.from(new Set(categories));
     window.electronAPI.saveCategoriesToAllBranches(unique).then(async res => {
         if (!res.success) throw new Error('Failed saving categories');
-        // Reload categories for all branches
+        // Reload categories and products for all branches
         await loadAllBranches();
+        await loadAllProductsForAdmin();
         populateCategories();
+        populateProductsTable();
         closeCategoryModal();
         showMessage('Category added successfully to all branches', 'success');
     }).catch(err => {
