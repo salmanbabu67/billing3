@@ -111,7 +111,12 @@ document.addEventListener('DOMContentLoaded', function () {
             statusDiv.textContent = 'Failed to load source branch menu.';
             return;
         }
-        let newProducts = srcData.data.products.map(p => ({ ...p, branch: tgt }));
+        // Generate a new unique product_id for each imported product
+        let newProducts = srcData.data.products.map(p => ({
+            ...p,
+            branch: tgt,
+            product_id: Date.now().toString() + Math.floor(Math.random() * 1000000).toString() // Unique per import
+        }));
         if (!overwrite) {
             // Merge: keep existing products in target branch that don't conflict by shortcut_number or name
             const tgtData = await window.electronAPI.getBranchData(tgt);
@@ -601,10 +606,10 @@ async function saveProducts() {
             showMessage(result.message || 'Failed to save products', 'error');
             return;
         }
-        // Always reload products after save
-        await loadAllProductsForAdmin();
-        populateProductsTable();
-        if (selectedBranchCode) await loadBranchScopedData();
+    // Always reload products after save
+    await loadAllProductsForAdmin();
+    filterProductsByBranch();
+    if (selectedBranchCode) await loadBranchScopedData();
     } catch (error) {
         console.error('Error saving products:', error);
         showMessage('Failed to save products', 'error');
@@ -643,16 +648,19 @@ function populateBranchForm() {
     }
 }
 
-function populateProductsTable() {
+function populateProductsTable(filteredList) {
     const tbody = document.querySelector('#productsTable tbody');
     tbody.innerHTML = '';
 
+    // Use filteredList if provided, otherwise use all products
+    const list = Array.isArray(filteredList) ? filteredList : products;
+
     // Debug log: show products array before rendering
-    console.log('[DEBUG] Products to display:', products);
+    console.log('[DEBUG] Products to display:', list);
 
     // Filter out duplicate products only within the same branch
     const seen = {};
-    products.filter(p => {
+    list.filter(p => {
         const key = p.branch + ':' + p.product_id;
         if (seen[key]) return false;
         seen[key] = true;
@@ -780,9 +788,9 @@ function populateProductsTable() {
                 } else {
                     showMessage('Product updated', 'success');
                 }
-                // Always reload all products for all branches and refresh table
+                // Always reload all products for all branches and refresh table with filter
                 loadAllProductsForAdmin().then(() => {
-                    populateProductsTable();
+                    filterProductsByBranch();
                 });
             });
         } else if (cancelBtn) {
@@ -865,13 +873,11 @@ async function updateOffer(offerId, field, value) {
 
 async function deleteProduct(productId) {
     window.showConfirmModal('Are you sure you want to delete this product?', async () => {
-        // Find the product to delete
-        const productToDelete = products.find(p => p.product_id === productId);
+        // Find the product to delete (must match both product_id and branch)
+        const productToDelete = products.find(p => p.product_id === productId && p.branch === selectedBranchCode);
         if (!productToDelete) return;
-        // Remove from products array
-        products = products.filter(p => p.product_id !== productId);
-        // Set selectedBranchCode to the product's branch
-        selectedBranchCode = productToDelete.branch;
+        // Remove only the product with matching product_id and branch
+        products = products.filter(p => !(p.product_id === productId && p.branch === selectedBranchCode));
         // Save only products for this branch
         const branchProducts = products.filter(p => p.branch === selectedBranchCode);
         const result = await window.electronAPI.saveProductsForBranch({ branchCode: selectedBranchCode, products: branchProducts });
@@ -880,7 +886,7 @@ async function deleteProduct(productId) {
             return;
         }
         await loadAllProductsForAdmin(); // Reload all products from all branches
-        populateProductsTable();
+        filterProductsByBranch();
         showMessage('Product deleted', 'success');
     });
 }
@@ -1061,37 +1067,14 @@ async function deleteBranch(branchCode) {
 // Product filtering functions
 function filterProductsByBranch() {
     const selectedBranch = document.getElementById('branchFilter').value;
-    let filteredProducts = products;
-    if (selectedBranch) {
-        filteredProducts = products.filter(p => p.branch === selectedBranch);
-    } else {
-        // If 'All Branches' selected, reload all products from all branches
+    if (!selectedBranch) {
         loadAllProductsForAdmin().then(() => {
             populateProductsTable();
         });
         return;
     }
-    const tbody = document.querySelector('#productsTable tbody');
-    tbody.innerHTML = '';
-    filteredProducts.forEach(product => {
-        const row = document.createElement('tr');
-        const branchObj = allBranches.find(b => b.branch_code === product.branch);
-        const branchName = branchObj ? branchObj.name : product.branch;
-        row.innerHTML = `
-    <td>${product.name}</td>
-    <td>${product.category}</td>
-    <td>${branchName}</td>
-    <td>${product.shortcut_number || ''}</td>
-    <td>${product.price}</td>
-    <td>${product.discount !== undefined ? product.discount : 0}</td>
-    <td>
-        <div class="action-buttons">
-            <button class="btn btn-sm btn-danger" onclick="deleteProduct('${product.product_id}')">Delete</button>
-        </div>
-    </td>
-`;
-        tbody.appendChild(row);
-    });
+    const filteredProducts = products.filter(p => p.branch === selectedBranch);
+    populateProductsTable(filteredProducts);
 }
 
 function logout() {
