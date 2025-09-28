@@ -494,6 +494,11 @@ function setupProductHandlers() {
                 return;
             }
         }
+        // Prevent duplicate product name in the same branch
+        if (products.some(p => p.branch === branch && p.name.trim().toLowerCase() === name.trim().toLowerCase())) {
+            showMessage('Product name already exists for this branch', 'error');
+            return;
+        }
         const newProduct = {
             product_id: Date.now().toString(),
             name: name,
@@ -559,6 +564,11 @@ function setupProductHandlers() {
 function setupOfferHandlers() {
     // Add offer button
     window.addOffer = async function () {
+        // Prevent adding more than one offer
+        if (offers.length > 0) {
+            showMessage('Only one offer can be added at a time. Please delete the existing offer before adding a new one.', 'error');
+            return;
+        }
         const name = document.getElementById('offerName').value.trim();
         const discount = parseFloat(document.getElementById('offerDiscount').value);
 
