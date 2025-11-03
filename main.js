@@ -351,8 +351,22 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
     } catch (e) {
       console.error('Could not read user.css:', e);
     }
-  // Add print CSS for Epson TM-T82XII (80mm x 297mm, no margins, body width 76mm)
-  const printCss = `@page { size: 80mm 297mm; margin: 0; } body { width: 76mm; min-height: 297mm; margin: 0 auto; }`;
+    // Add print CSS for Epson TM-T82XII (80mm x 297mm, no margins, body width 76mm)
+    const printCss = `
+@page {
+ size: 80mm 297mm;
+ margin: 0;
+}
+body {
+ width: 76mm;
+ min-height: 297mm;
+ margin: 0 auto;
+ padding: 0;
+ font-family: Arial, sans-serif;
+ font-size: 12px;
+ box-sizing: border-box;
+}
+`;
     const fullHtml = `<!DOCTYPE html>
     <html>
     <head>
@@ -370,7 +384,9 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
           silent: true,
           printBackground: true,
           copies: 1,
-          pageSize: { width: 80000, height: 297000 } // 80mm x 297mm in microns
+          margins: { marginType: 'none' },
+          scaleFactor: 100, // Prevents shrunken output
+          pageSize: { width: 80000, height: 297000 },
         }, (success, errorType) => {
           if (success) {
             console.log('Print job completed successfully');
@@ -1168,7 +1184,7 @@ function loadGlobalSettings() {
     if (fs.existsSync(globalSettingsPath)) {
       return JSON.parse(fs.readFileSync(globalSettingsPath, 'utf8'));
     }
-  } catch (e) {}
+  } catch (e) { }
   return {};
 }
 function saveGlobalSettings(settings) {
