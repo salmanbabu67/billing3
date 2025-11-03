@@ -358,7 +358,7 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
  margin: 0;
 }
 body {
- width: 76mm;
+ width: 150mm;
  min-height: 297mm;
  margin: 0 auto;
  padding: 0;
@@ -385,8 +385,7 @@ body {
           printBackground: true,
           copies: 1,
           margins: { marginType: 'none' },
-          scaleFactor: 100, // Prevents shrunken output
-          pageSize: { width: 150000, height: 297000 },
+          pageSize: { width: 250000, height: 297000 },
         }, (success, errorType) => {
           if (success) {
             console.log('Print job completed successfully');
