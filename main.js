@@ -354,12 +354,12 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
     // Add print CSS for Epson TM-T82XII (80mm x 297mm, no margins, body width 76mm)
     const printCss = `
 @page {
- size: 200mm 297mm;
+ size: 150mm 297mm;
  margin: 0;
 }
 body {
- width: 200mm;
- min-height: 197mm;
+ width: 100mm;
+ min-height: 297mm;
  margin: 0 auto;
  padding: 0;
  font-family: Arial, sans-serif;
@@ -385,7 +385,7 @@ body {
           printBackground: true,
           copies: 1,
           margins: { marginType: 'none' },
-          pageSize: { width: 300000, height: 197000 },
+          pageSize: { width: 270000, height: 297000 },
         }, (success, errorType) => {
           if (success) {
             console.log('Print job completed successfully');
