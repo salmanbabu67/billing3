@@ -351,8 +351,8 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
     } catch (e) {
       console.error('Could not read user.css:', e);
     }
-    // Add print CSS for 80(75)x297mm size
-    const printCss = `@page { size: 80mm 297mm; margin: 0; } body { width: 80mm; min-height: 297mm; margin: 0; }`;
+  // Add print CSS for 80(75)x297mm thermal bill size
+  const printCss = `@page { size: 80mm 297mm; margin: 0; } body { width: 75mm; min-height: 297mm; margin: 0; }`;
     const fullHtml = `<!DOCTYPE html>
     <html>
     <head>
