@@ -386,7 +386,7 @@ body {
           copies: 1,
           margins: { marginType: 'none' },
           scaleFactor: 100, // Prevents shrunken output
-          pageSize: { width: 400000, height: 297000 },
+          pageSize: { width: 200000, height: 297000 },
         }, (success, errorType) => {
           if (success) {
             console.log('Print job completed successfully');
