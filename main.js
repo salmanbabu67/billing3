@@ -351,8 +351,8 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
     } catch (e) {
       console.error('Could not read user.css:', e);
     }
-  // Add print CSS for 100mm x 297mm thermal bill size
-  const printCss = `@page { size: 100mm 297mm; margin: 0; } body { width: 95mm; min-height: 297mm; margin: 0; }`;
+  // Add print CSS for Epson TM-T82XII (80mm x 297mm, no margins, body width 76mm)
+  const printCss = `@page { size: 80mm 297mm; margin: 0; } body { width: 76mm; min-height: 297mm; margin: 0 auto; }`;
     const fullHtml = `<!DOCTYPE html>
     <html>
     <head>
@@ -370,7 +370,7 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
           silent: true,
           printBackground: true,
           copies: 1,
-          pageSize: { width: 100000, height: 297000 } // 100mm x 297mm in microns
+          pageSize: { width: 80000, height: 297000 } // 80mm x 297mm in microns
         }, (success, errorType) => {
           if (success) {
             console.log('Print job completed successfully');
