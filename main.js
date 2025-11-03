@@ -354,7 +354,7 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
     // Add print CSS for Epson TM-T82XII (80mm x 297mm, no margins, body width 76mm)
     const printCss = `
 @page {
- size: 80mm 297mm;
+ size: 150mm 297mm;
  margin: 0;
 }
 body {
@@ -386,7 +386,7 @@ body {
           copies: 1,
           margins: { marginType: 'none' },
           scaleFactor: 100, // Prevents shrunken output
-          pageSize: { width: 200000, height: 297000 },
+          pageSize: { width: 150000, height: 297000 },
         }, (success, errorType) => {
           if (success) {
             console.log('Print job completed successfully');
