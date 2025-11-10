@@ -3,14 +3,16 @@
     background: #fff3cd !important;
     border: 2px solid #ffc107 !important;
 }
-/* Enable horizontal scroll for table container */
+/* Enable horizontal and vertical scroll for table container */
 .table-container {
     overflow-x: auto !important;
+    overflow-y: auto !important;
     width: 100% !important;
     display: block !important;
     padding-bottom: 8px;
     border: 1px solid #ccc;
     background: #fff;
+    max-height: 400px !important;
 }
 * {
     margin: 0;
@@ -164,6 +166,8 @@ body {
     border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 table {
@@ -382,6 +386,13 @@ tr:hover {
 /* Branch table specific styles */
 .branch-table-container {
     margin-top: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.branch-table-container .table-container {
+    max-height: inherit;
+    overflow-y: auto;
 }
 
 .branch-actions {

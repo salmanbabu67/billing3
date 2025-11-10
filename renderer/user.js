@@ -581,26 +581,29 @@ async function generateBill() {
         const billDataWithNo = { ...billData, bill_no: result.billNo };
         const billHtml = getBillHtml(billDataWithNo);
         if (billType === 'Home Delivery') {
-            // Print first copy
-            await window.electronAPI.printBillHtml(billHtml).then(result => {
+            // Create duplicate bill with proper watermark overlay
+            const duplicateHtml = billHtml.replace(
+                /<div class="bill-modal"([^>]*)>/, 
+                `<div class="bill-modal"$1 style="position: relative;">
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 4rem; color: rgba(255, 0, 0, 0.2); font-weight: bold; z-index: 1000; pointer-events: none; font-family: Arial, sans-serif;">DUPLICATE</div>
+                <div style="position: relative; z-index: 1;">`
+            ).replace(/<\/div>\s*$/, '</div></div>');
+            
+            const combinedHtml = `
+                ${billHtml}
+                <div style="page-break-before: always; margin: 0; padding: 0;"></div>
+                ${duplicateHtml}
+            `;
+            
+            // Single print job for both normal and duplicate
+            await window.electronAPI.printBillHtml(combinedHtml).then(result => {
                 if (result.success) {
-                    showMessage('Bill printed successfully', 'success');
+                    showMessage('Home delivery bills (original + duplicate) printed successfully', 'success');
                 } else {
                     showMessage(result.message || 'Print failed', 'error');
                 }
             }).catch(() => {
                 showMessage('Print failed', 'error');
-            });
-            // Print second copy with DUPLICATE watermark
-            const duplicateHtml = `<div style='position:absolute;top:40%;left:0;width:100%;text-align:center;font-size:2.5rem;color:#e00;opacity:0.25;z-index:999;'>DUPLICATE</div>` + billHtml;
-            await window.electronAPI.printBillHtml(duplicateHtml).then(result => {
-                if (result.success) {
-                    showMessage('Duplicate bill printed', 'success');
-                } else {
-                    showMessage(result.message || 'Duplicate print failed', 'error');
-                }
-            }).catch(() => {
-                showMessage('Duplicate print failed', 'error');
             });
         } else {
             // Only one copy for Takeaway

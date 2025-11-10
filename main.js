@@ -380,20 +380,66 @@ body {
     printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(fullHtml));
     printWin.webContents.on('did-finish-load', () => {
       try {
+        let dialogHandled = false;
+        
+        // Show print dialog for correct formatting (not silent)
         printWin.webContents.print({
-          silent: true,
+          silent: false, // Show dialog to get proper formatting
           printBackground: true,
           copies: 1,
           margins: { marginType: 'none' },
           pageSize: { width: 270000, height: 297000 },
         }, (success, errorType) => {
+          dialogHandled = true;
           if (success) {
             console.log('Print job completed successfully');
           } else {
             console.error('Print job failed:', errorType);
           }
-          setTimeout(() => { printWin.close(); }, 2000);
+          setTimeout(() => { printWin.close(); }, 1000);
         });
+        
+        // Auto-navigate to Print button (9th focusable element) after brief delay
+        setTimeout(() => {
+          if (!dialogHandled) {
+            try {
+              const { exec } = require('child_process');
+              const fs = require('fs');
+              
+              // Simple direct approach - just send the exact keys
+              const autoClickScript = `Set WshShell = WScript.CreateObject("WScript.Shell")
+' Wait for dialog
+WScript.Sleep 600
+
+' Send exact sequence: 8 tabs then enter (no loops, no variables, no fancy stuff)
+WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"
+
+' Backup if that didn't work
+WScript.Sleep 300
+WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"`;
+              
+              // Write and execute VBScript
+              fs.writeFileSync('auto_print.vbs', autoClickScript);
+              
+              exec('cscript //nologo auto_print.vbs', (error, stdout, stderr) => {
+                console.log('Auto-print navigation executed');
+                
+                // Clean up VBS file
+                setTimeout(() => {
+                  try {
+                    fs.unlinkSync('auto_print.vbs');
+                  } catch (e) {
+                    console.log('VBS cleanup completed');
+                  }
+                }, 500);
+              });
+              
+            } catch (err) {
+              console.error('Auto-print failed:', err);
+            }
+          }
+        }, 2000); // Wait 800ms for dialog to appear and be ready
+        
       } catch (err) {
         console.error('Error during print:', err);
       }

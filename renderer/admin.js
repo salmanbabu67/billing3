@@ -157,7 +157,7 @@ document.addEventListener('DOMContentLoaded', function () {
     loadAllBranches().then(async () => {
         await loadAllProductsForAdmin();
         console.log('Loaded products:', products); // Debug log to verify products array
-        populateProductsTable();
+        filterProductsByBranch(); // Use filter function instead of direct populateProductsTable
     });
     populateCategories();
 });
@@ -555,7 +555,7 @@ function setupProductHandlers() {
         document.getElementById('productAddGST').checked = false;
         // Only repopulate table after products are fetched
         await loadAllProductsForAdmin();
-        populateProductsTable();
+        filterProductsByBranch(); // Reapply current filter
         if (addBtn) addBtn.disabled = false;
         showMessage('Product added successfully', 'success');
     };
@@ -618,7 +618,7 @@ async function saveProducts() {
         }
     // Always reload products after save
     await loadAllProductsForAdmin();
-    filterProductsByBranch();
+    filterProductsByBranch(); // Reapply current filter
     if (selectedBranchCode) await loadBranchScopedData();
     } catch (error) {
         console.error('Error saving products:', error);
@@ -800,7 +800,7 @@ function populateProductsTable(filteredList) {
                 }
                 // Always reload all products for all branches and refresh table with filter
                 loadAllProductsForAdmin().then(() => {
-                    filterProductsByBranch();
+                    filterProductsByBranch(); // Reapply current filter
                 });
             });
         } else if (cancelBtn) {
@@ -896,7 +896,7 @@ async function deleteProduct(productId) {
             return;
         }
         await loadAllProductsForAdmin(); // Reload all products from all branches
-        filterProductsByBranch();
+        filterProductsByBranch(); // Reapply current filter
         showMessage('Product deleted', 'success');
     });
 }
@@ -1018,7 +1018,7 @@ function addCategory() {
         await loadAllBranches();
         await loadAllProductsForAdmin();
         populateCategories();
-        populateProductsTable();
+        filterProductsByBranch(); // Reapply current filter
         closeCategoryModal();
         showMessage('Category added successfully to all branches', 'success');
     }).catch(err => {
@@ -1077,13 +1077,17 @@ async function deleteBranch(branchCode) {
 // Product filtering functions
 function filterProductsByBranch() {
     const selectedBranch = document.getElementById('branchFilter').value;
-    if (!selectedBranch) {
-        loadAllProductsForAdmin().then(() => {
-            populateProductsTable();
-        });
+    console.log('[DEBUG] Filter by branch:', selectedBranch); // Debug log
+    console.log('[DEBUG] All products:', products); // Debug log
+    
+    if (!selectedBranch || selectedBranch === '') {
+        // Show all products when no filter is selected
+        populateProductsTable(products);
         return;
     }
+    
     const filteredProducts = products.filter(p => p.branch === selectedBranch);
+    console.log('[DEBUG] Filtered products:', filteredProducts); // Debug log
     populateProductsTable(filteredProducts);
 }
 
