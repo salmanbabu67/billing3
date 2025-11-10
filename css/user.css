@@ -3,41 +3,32 @@
     background: #fff;
     border-radius: 12px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.18);
-    padding: 0rem 1.5rem 0rem 1rem;
-    min-width: 480px;
-    max-width: 700px;
-    margin: auto;
-    text-align: center;
+    padding: 0%;
+    margin: 0%;
 }
 .bill-modal .branch-details {
     font-weight: bold;
-    font-size: 1.15rem;
-    margin-bottom: 0.2rem;
+    font-size: 1rem;
 }
 .bill-modal .branch-address {
-    font-size: 0.98rem;
+    font-size: 0.80rem;
     line-height: 1.3;
-    margin-bottom: 0.2rem;
 }
 .bill-modal .branch-meta {
-    font-size: 0.95rem;
-    margin-bottom: 0.2rem;
+    font-size: 0.80rem;
 }
 .bill-modal .bill-meta {
     display: flex;
     justify-content: space-between;
-    font-size: 1rem;
-    margin: 1rem 0 0.5rem 0;
+    font-size: 0.80rem;
 }
 .bill-modal table {
     width: 100%;
-    margin-bottom: 1rem;
     border-collapse: collapse;
 }
 .bill-modal th, .bill-modal td {
     border: none;
-    padding: 8px 6px;
-    font-size: 1rem;
+    font-size: 0.80rem;
 }
 .bill-modal th {
     font-weight: 600;
@@ -50,12 +41,11 @@
 .bill-modal .bill-summary {
     display: flex;
     justify-content: space-between;
-    font-size: 1rem;
-    margin-bottom: 0.5rem;
+    font-size: 0.80rem;
 }
 .bill-modal .bill-taxes {
     text-align: right;
-    font-size: 1rem;
+    font-size: 0.80rem;
     justify-content: space-between;
     display: flex;
 }
@@ -63,25 +53,20 @@
     text-align: right;
     font-weight: bold;
     font-size: 1.1rem;
-    margin-bottom: 0.5rem;
 }
 .bill-modal .bill-footer {
     text-align: center;
-    margin-top: 1rem;
     font-size: 1rem;
 }
 .bill-modal .bill-footer span {
     font-weight: bold;
 }
 .bill-modal .btn {
-    margin-top: 1.5rem;
-    padding: 0.85rem 2.2rem;
-    font-size: 1.05rem;
+    font-size: 0.80rem;
     border-radius: 6px;
 }
 .bill-time{
     text-align: end;
-    margin-bottom: 1rem;
 }
 /* Flexbox layout for main-container and bill-section */
 .main-container {

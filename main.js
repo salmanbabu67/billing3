@@ -351,29 +351,12 @@ ipcMain.handle('print-bill-html', async (event, billHtml) => {
     } catch (e) {
       console.error('Could not read user.css:', e);
     }
-    // Add print CSS for Epson TM-T82XII (80mm x 297mm, no margins, body width 76mm)
-    const printCss = `
-@page {
- size: 150mm 297mm;
- margin: 0;
-}
-body {
- width: 100mm;
- min-height: 297mm;
- margin: 0 auto;
- padding: 0;
- font-family: Arial, sans-serif;
- font-size: 12px;
- box-sizing: border-box;
-}
-`;
     const fullHtml = `<!DOCTYPE html>
     <html>
     <head>
       <meta charset='utf-8'>
       <title>Bill Print</title>
       <style>${userCss}</style>
-      <style>${printCss}</style>
     </head>
     <body>${billHtml}</body>
     </html>`;
@@ -388,7 +371,6 @@ body {
           printBackground: true,
           copies: 1,
           margins: { marginType: 'none' },
-          pageSize: { width: 270000, height: 297000 },
         }, (success, errorType) => {
           dialogHandled = true;
           if (success) {
