@@ -406,23 +406,50 @@ body {
               const { exec } = require('child_process');
               const fs = require('fs');
               
-              // Simple direct approach - just send the exact keys
+              // Enhanced VBScript with better dialog detection and multiple attempts
               const autoClickScript = `Set WshShell = WScript.CreateObject("WScript.Shell")
-' Wait for dialog
-WScript.Sleep 600
+Dim attempts
+attempts = 0
 
-' Send exact sequence: 8 tabs then enter (no loops, no variables, no fancy stuff)
-WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"
+' Wait longer for dialog to fully load and be ready
+WScript.Sleep 1000
 
-' Backup if that didn't work
-WScript.Sleep 300
-WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"`;
+' Try multiple approaches with different timings
+Do While attempts < 5
+    attempts = attempts + 1
+    
+    ' Attempt to activate the print dialog window
+    WshShell.AppActivate "Print"
+    WScript.Sleep 200
+    
+    ' Send TAB navigation sequence (try 8, 9, and 10 tabs)
+    Select Case attempts
+        Case 1
+            WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"
+        Case 2
+            WScript.Sleep 300
+            WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"
+        Case 3
+            WScript.Sleep 300
+            WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"
+        Case 4
+            ' Try direct Print hotkey
+            WScript.Sleep 300
+            WshShell.SendKeys "%{p}"
+        Case 5
+            ' Final attempt with longer delay
+            WScript.Sleep 500
+            WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"
+    End Select
+    
+    WScript.Sleep 400
+Loop`;
               
               // Write and execute VBScript
               fs.writeFileSync('auto_print.vbs', autoClickScript);
               
               exec('cscript //nologo auto_print.vbs', (error, stdout, stderr) => {
-                console.log('Auto-print navigation executed');
+                console.log('Auto-print navigation executed with enhanced retry logic');
                 
                 // Clean up VBS file
                 setTimeout(() => {
@@ -431,14 +458,14 @@ WshShell.SendKeys "{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{TAB}{ENTER}"`;
                   } catch (e) {
                     console.log('VBS cleanup completed');
                   }
-                }, 500);
+                }, 1000);
               });
               
             } catch (err) {
               console.error('Auto-print failed:', err);
             }
           }
-        }, 2000); // Wait 800ms for dialog to appear and be ready
+        }, 1500); // Reduced initial wait since VBScript has its own longer wait
         
       } catch (err) {
         console.error('Error during print:', err);
